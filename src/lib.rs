@@ -147,17 +147,16 @@ impl<T: 'static> SwmrCell<T> {
     }
 
     /// Manually trigger garbage collection.
-    /// 
-    /// This uses RCU-style grace period detection:
-    /// 1. Scan all readers: for inactive readers, check their quiescent_version.
-    /// 2. Wait for readers that haven't passed through a quiescent point yet.
-    ///
     /// 手动触发垃圾回收。
-    ///
-    /// 使用 RCU 风格的宽限期检测：
-    /// 1. 扫描所有读者：对于非活跃读者，检查其 quiescent_version。
-    /// 2. 等待尚未通过静默点的读者。
     pub fn collect(&mut self) {
+        // In this design, we don't necessarily advance the version just for collection.
+        // But we need to find min_active_version.
+        
+        // Ensure that any global version updates (from store) are visible before we scan readers.
+        // We need a StoreLoad barrier to ensure the Writer sees the Reader's active_version store
+        // if the Reader didn't see the Writer's global_version store.
+        fence(Ordering::SeqCst);
+
         let current_version = self.shared.global_version.load(Ordering::Acquire);
         let mut min_active = current_version;
         
@@ -168,42 +167,11 @@ impl<T: 'static> SwmrCell<T> {
         let mut dead_count = 0;
 
         for arc_slot in shared_readers.iter() {
-            let active = arc_slot.active_version.load(Ordering::Acquire);
-            
-            if active != INACTIVE_VERSION {
-                // Reader is currently pinned, respect their version.
-                // 读者当前被 pin，尊重它们的版本。
-                min_active = min_active.min(active);
-            } else {
-                // Reader is inactive. Check quiescent_version to see if they've
-                // observed a recent enough version.
-                // 读者是非活跃的。检查 quiescent_version 看它们是否
-                // 已观察到足够新的版本。
-                let quiescent = arc_slot.quiescent_version.load(Ordering::Acquire);
-                
-                // If quiescent_version < current_version, the reader might still be
-                // in the middle of pin() and hasn't seen our new version yet.
-                // We must be conservative and assume they might pin an old version.
-                // 如果 quiescent_version < current_version，读者可能仍在
-                // pin() 过程中，尚未看到我们的新版本。
-                // 我们必须保守地假设他们可能 pin 旧版本。
-                if quiescent < current_version {
-                    // This reader hasn't passed through a quiescent state since we updated.
-                    // We can't reclaim anything older than what they might have pinned.
-                    // Use their last known quiescent version as a conservative bound.
-                    // 此读者自我们更新以来尚未通过静默状态。
-                    // 我们不能回收比他们可能 pin 的更旧的东西。
-                    // 使用他们最后已知的静默版本作为保守边界。
-                    min_active = min_active.min(quiescent);
-                }
-                // else: quiescent >= current_version means they've observed our version
-                // and are safe (they will pin current_version or later if they pin again).
-                // 否则：quiescent >= current_version 意味着他们已观察到我们的版本，
-                // 是安全的（如果再次 pin，他们会 pin current_version 或更晚的版本）。
-                
-                if should_cleanup && Arc::strong_count(arc_slot) == 1 {
-                    dead_count += 1;
-                }
+            let version = arc_slot.active_version.load(Ordering::Acquire);
+            if version != INACTIVE_VERSION {
+                min_active = min_active.min(version);
+            } else if should_cleanup && Arc::strong_count(arc_slot) == 1 {
+                dead_count += 1;
             }
         }
 
@@ -361,11 +329,6 @@ pub(crate) struct ReaderSlot {
     /// The version currently being accessed by the reader, or INACTIVE_VERSION.
     /// 读者当前访问的版本，或 INACTIVE_VERSION。
     pub(crate) active_version: AtomicUsize,
-    /// The last version observed when the reader passed through a quiescent state (unpin).
-    /// Used by RCU-style grace period detection.
-    /// 读者经过静默状态（unpin）时观察到的最后版本。
-    /// 用于 RCU 风格的宽限期检测。
-    pub(crate) quiescent_version: AtomicUsize,
 }
 
 /// Global shared state for the version GC domain.
@@ -417,7 +380,6 @@ impl<T: 'static> LocalReader<T> {
     fn new(shared: Arc<SharedState>, ptr: Arc<AtomicPtr<T>>) -> Self {
         let slot = Arc::new(ReaderSlot {
             active_version: AtomicUsize::new(INACTIVE_VERSION),
-            quiescent_version: AtomicUsize::new(0),
         });
 
         // Register the reader immediately in the shared readers list
@@ -487,6 +449,8 @@ impl<T: 'static> LocalReader<T> {
                 self.slot
                     .active_version
                     .store(current_version, Ordering::Release);
+
+                fence(Ordering::SeqCst);
             }
 
             // Check if our version is still valid
@@ -623,16 +587,6 @@ impl<'a, T> Drop for PinGuard<'a, T> {
         );
 
         if pin_count == 1 {
-            // RCU-style: Update quiescent_version before marking inactive.
-            // This tells the Writer that we have observed at least this version.
-            // RCU 风格：在标记为非活跃之前更新 quiescent_version。
-            // 这告诉 Writer 我们至少已经观察到了这个版本。
-            let pinned = self.local.slot.active_version.load(Ordering::Relaxed);
-            self.local
-                .slot
-                .quiescent_version
-                .store(pinned, Ordering::Release);
-
             self.local
                 .slot
                 .active_version
