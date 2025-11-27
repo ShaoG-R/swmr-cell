@@ -141,13 +141,11 @@ impl<T: 'static> SwmrCell<T> {
     pub fn collect(&mut self) {
         // In this design, we don't necessarily advance the version just for collection.
         // But we need to find min_active_version.
-        
-        // Ensure that any global version updates (from store) are visible before we scan readers.
-        // We need a StoreLoad barrier to ensure the Writer sees the Reader's active_version store
-        // if the Reader didn't see the Writer's global_version store.
-        swmr_barrier::heavy_barrier();
 
         let current_version = self.shared.global_version.load(Ordering::Acquire);
+
+        let safety_limit = current_version.saturating_sub(2);
+
         let mut min_active = current_version;
 
         let mut shared_readers = self.shared.readers.lock();
@@ -165,8 +163,11 @@ impl<T: 'static> SwmrCell<T> {
         
         drop(shared_readers);
 
-        self.shared.min_active_version.store(min_active, Ordering::Release);
-        self.garbage.collect(min_active, current_version);
+        let reclaim_threshold = min_active.min(safety_limit);
+
+        self.shared.min_active_version.store(reclaim_threshold, Ordering::Release);
+
+        self.garbage.collect(reclaim_threshold, current_version);
     }
 }
 
@@ -424,13 +425,11 @@ impl<T: 'static> LocalReader<T> {
         // First pin: need to acquire a version and validate it.
         // 首次 pin：需要获取版本并验证。
         loop {
-            let current_version = self.shared.global_version.load(Ordering::Relaxed);
+            let current_version = self.shared.global_version.load(Ordering::Acquire);
             
             self.slot
                 .active_version
-                .store(current_version, Ordering::Relaxed);
-
-            swmr_barrier::light_barrier();
+                .store(current_version, Ordering::Release);
 
             // Check if our version is still valid (not yet reclaimed).
             // 检查我们的版本是否仍然有效（尚未被回收）。
