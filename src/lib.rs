@@ -75,10 +75,7 @@ impl<T: 'static> SwmrCell<T> {
     ///
     /// 使用默认设置和给定的初始值创建一个新的 SWMR 单元。
     #[inline]
-    pub fn new(data: T) -> Self
-    where
-        T: Send,
-    {
+    pub fn new(data: T) -> Self {
         Self::builder().build(data)
     }
 
@@ -182,7 +179,7 @@ pub struct SwmrCellBuilder<T> {
     marker: PhantomData<T>
 }
 
-impl<T: Send + 'static> SwmrCellBuilder<T> {
+impl<T: 'static> SwmrCellBuilder<T> {
     /// Sets the threshold for automatic garbage reclamation.
     ///
     /// When the number of retired objects exceeds this threshold,
