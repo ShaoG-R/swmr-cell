@@ -1,8 +1,8 @@
 # SWMR-Cell: 基于版本的单写多读单元
 
-[![Crates.io](https://img.shields.io/crates/v/swmr-cell.svg)](https://crates.io/crates/swmr-cell)
-[![License](https://img.shields.io/crates/l/swmr-cell.svg)](https://github.com/ShaoG-R/swmr-cell#license)
-[![Docs.rs](https://docs.rs/swmr-cell/badge.svg)](https://docs.rs/swmr-cell)
+[![Crates.io](https://img.shields.io/crates/v/swmr-cell)](https://crates.io/crates/swmr-cell)
+[![Documentation](https://docs.rs/swmr-cell/badge.svg)](https://docs.rs/swmr-cell)
+[![License](https://img.shields.io/crates/l/swmr-cell)](LICENSE-MIT)
 
 [English Documentation](./README.md)
 
