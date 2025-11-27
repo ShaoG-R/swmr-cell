@@ -14,10 +14,11 @@ categories = ["concurrency", "data-structures", "memory-management"]
 [dependencies]
 antidote = "1.0.0"
 loom = { version = "0.7", optional = true }
+swmr-barrier = "0.1.1"
 
 [dev-dependencies]
 crossbeam-epoch = "0.9"
 criterion = { version = "0.7", features = ["html_reports"] }
 
 [features]
-loom = ["dep:loom"]
+loom = ["dep:loom", "swmr-barrier/loom"]

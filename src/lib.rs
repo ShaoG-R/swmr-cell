@@ -155,7 +155,7 @@ impl<T: 'static> SwmrCell<T> {
         // Ensure that any global version updates (from store) are visible before we scan readers.
         // We need a StoreLoad barrier to ensure the Writer sees the Reader's active_version store
         // if the Reader didn't see the Writer's global_version store.
-        fence(Ordering::SeqCst);
+        swmr_barrier::heavy_barrier();
 
         let current_version = self.shared.global_version.load(Ordering::Acquire);
         let mut min_active = current_version;
@@ -438,41 +438,52 @@ impl<T: 'static> LocalReader<T> {
     pub fn pin(&self) -> PinGuard<'_, T> {
         let pin_count = self.pin_count.get();
 
-        // Always verify version validity, even for reentrant pins.
-        // This ensures that the pinned version is always >= min_active.
-        // 始终验证版本有效性，即使是可重入的 pin。
-        // 这确保被钉住的版本始终 >= min_active。
+        // Reentrant pin: the version is already protected by the outer pin.
+        // Just increment count and reuse the existing pinned pointer.
+        // 可重入 pin：版本已经被外层 pin 保护。
+        // 只需增加计数并复用现有的 pinned 指针。
+        if pin_count > 0 {
+            self.pin_count.set(pin_count + 1);
+            
+            // Load the pointer that corresponds to our already-pinned version.
+            // Since we're reentrant, we should see the same or newer pointer.
+            // 加载与我们已 pin 版本对应的指针。
+            // 由于是可重入的，我们应该看到相同或更新的指针。
+            let ptr = self.ptr.load(Ordering::Acquire);
+            
+            return PinGuard { local: self, ptr };
+        }
+
+        // First pin: need to acquire a version and validate it.
+        // 首次 pin：需要获取版本并验证。
         loop {
-            let current_version = self.shared.global_version.load(Ordering::Acquire);
+            let current_version = self.shared.global_version.load(Ordering::Relaxed);
             
-            if pin_count == 0 {
-                self.slot
-                    .active_version
-                    .store(current_version, Ordering::Release);
+            self.slot
+                .active_version
+                .store(current_version, Ordering::Relaxed);
 
-                fence(Ordering::SeqCst);
-            }
+            swmr_barrier::light_barrier();
 
-            // Check if our version is still valid
-            // 检查我们的版本是否仍然有效
+            // Check if our version is still valid (not yet reclaimed).
+            // 检查我们的版本是否仍然有效（尚未被回收）。
             let min_active = self.shared.min_active_version.load(Ordering::Acquire);
-            let pinned_version = self.slot.active_version.load(Ordering::Acquire);
             
-            if pinned_version >= min_active {
+            if current_version >= min_active {
                 break;
             }
             
-            // Version outdated. For reentrant pins, we cannot update active_version
-            // as it's shared with outer pins. Just spin and wait.
-            // 版本过时了。对于可重入的 pin，我们不能更新 active_version，
-            // 因为它与外层 pin 共享。只能自旋等待。
+            // Version was reclaimed between our read and store.
+            // Retry with a fresh version.
+            // 版本在我们读取和存储之间被回收了。
+            // 用新版本重试。
             std::hint::spin_loop();
         }
 
-        self.pin_count.set(pin_count + 1);
+        self.pin_count.set(1);
 
-        // Capture the pointer at pin time for snapshot semantics
-        // 在 pin 时捕获指针以实现快照语义
+        // Capture the pointer at pin time for snapshot semantics.
+        // 在 pin 时捕获指针以实现快照语义。
         let ptr = self.ptr.load(Ordering::Acquire);
 
         PinGuard { local: self, ptr }

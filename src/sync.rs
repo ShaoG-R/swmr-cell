@@ -4,9 +4,9 @@ pub use loom::cell::Cell;
 pub use std::cell::Cell;
 
 #[cfg(feature = "loom")]
-pub use loom::sync::atomic::{AtomicPtr, AtomicUsize, Ordering, fence};
+pub use loom::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 #[cfg(not(feature = "loom"))]
-pub use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering, fence};
+pub use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 #[cfg(feature = "loom")]
 pub use loom::sync::Arc;
