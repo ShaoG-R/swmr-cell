@@ -110,14 +110,12 @@ You can customize the garbage collection behavior using `SwmrCell::builder()`:
 use swmr_cell::SwmrCell;
 
 let mut cell = SwmrCell::builder()
-    .auto_reclaim_threshold(Some(128)) // Trigger GC automatically after 128 stores (default: 64)
+    .auto_reclaim_threshold(Some(128)) // Trigger GC automatically after 128 stores (default: 16)
     // .auto_reclaim_threshold(None)   // Disable automatic GC
-    .cleanup_interval(32)              // Clean up dead reader slots every 32 GC cycles (default: 16)
     .build(0);
 ```
 
 - **auto_reclaim_threshold**: Controls how many retired objects are buffered before scanning readers for reclamation. Larger values reduce GC overhead but increase memory usage.
-- **cleanup_interval**: Controls how often the writer checks for and removes "dead" readers (dropped `LocalReader`s).
 
 ## How It Works
 

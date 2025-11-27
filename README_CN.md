@@ -110,14 +110,11 @@ fn main() {
 use swmr_cell::SwmrCell;
 
 let mut cell = SwmrCell::builder()
-    .auto_reclaim_threshold(Some(128)) // 在 128 次存储后自动触发 GC（默认：64）
-    // .auto_reclaim_threshold(None)   // 禁用自动 GC
-    .cleanup_interval(32)              // 每 32 个 GC 周期清理一次死读者槽（默认：16）
+    .auto_reclaim_threshold(Some(128)) // 在 128 次存储后自动触发 GC（默认：16）
     .build(0);
 ```
 
 - **auto_reclaim_threshold**：控制在扫描读取者进行回收之前缓冲多少个已退休对象。较大的值会减少 GC 开销，但会增加内存使用。
-- **cleanup_interval**：控制写入者检查并移除"死"读取者（已 drop 的 `LocalReader`）的频率。
 
 ## 工作原理
 

@@ -46,11 +46,7 @@ use std::{collections::VecDeque, marker::PhantomData, ops::Deref, vec::Vec};
 
 /// Default threshold for automatic garbage reclamation (count of retired nodes).
 /// 自动垃圾回收的默认阈值（已退休节点的数量）。
-pub(crate) const AUTO_RECLAIM_THRESHOLD: usize = 64;
-
-/// Default interval for cleaning up dead reader slots (in collection cycles).
-/// 清理死读者槽的默认间隔（以回收周期为单位）。
-pub(crate) const DEFAULT_CLEANUP_INTERVAL: usize = 16;
+pub(crate) const AUTO_RECLAIM_THRESHOLD: usize = 16;
 
 /// Represents a reader that is not currently pinned to any version.
 /// 表示当前未被钉住到任何版本的读者。
@@ -72,8 +68,6 @@ pub struct SwmrCell<T: 'static> {
     ptr: Arc<AtomicPtr<T>>,
     garbage: GarbageSet<T>,
     auto_reclaim_threshold: Option<usize>,
-    collection_counter: usize,
-    cleanup_interval: usize,
 }
 
 impl<T: 'static> SwmrCell<T> {
@@ -95,7 +89,6 @@ impl<T: 'static> SwmrCell<T> {
     pub fn builder() -> SwmrCellBuilder<T> {
         SwmrCellBuilder {
             auto_reclaim_threshold: Some(AUTO_RECLAIM_THRESHOLD),
-            cleanup_interval: DEFAULT_CLEANUP_INTERVAL,
             marker: PhantomData::default()
         }
     }
@@ -159,25 +152,19 @@ impl<T: 'static> SwmrCell<T> {
 
         let current_version = self.shared.global_version.load(Ordering::Acquire);
         let mut min_active = current_version;
-        
-        self.collection_counter += 1;
-        let should_cleanup = self.cleanup_interval > 0 && self.collection_counter % self.cleanup_interval == 0;
 
         let mut shared_readers = self.shared.readers.lock();
-        let mut dead_count = 0;
 
         for arc_slot in shared_readers.iter() {
             let version = arc_slot.active_version.load(Ordering::Acquire);
             if version != INACTIVE_VERSION {
                 min_active = min_active.min(version);
-            } else if should_cleanup && Arc::strong_count(arc_slot) == 1 {
-                dead_count += 1;
             }
         }
 
-        if should_cleanup && dead_count > 0 {
-            shared_readers.retain(|arc_slot| Arc::strong_count(arc_slot) > 1);
-        }
+        // Clean up dead reader slots (strong_count == 1 means only SharedState holds it)
+        // 清理死读者槽（strong_count == 1 表示只有 SharedState 持有它）
+        shared_readers.retain(|arc_slot| Arc::strong_count(arc_slot) > 1);
         
         drop(shared_readers);
 
@@ -192,7 +179,6 @@ impl<T: 'static> SwmrCell<T> {
 /// 用于配置和创建 SWMR 单元的构建器。
 pub struct SwmrCellBuilder<T> {
     auto_reclaim_threshold: Option<usize>,
-    cleanup_interval: usize,
     marker: PhantomData<T>
 }
 
@@ -215,20 +201,6 @@ impl<T: Send + 'static> SwmrCellBuilder<T> {
         self
     }
 
-    /// Sets the interval for cleaning up dead reader slots.
-    ///
-    /// The cleanup happens every `interval` collection cycles.
-    /// Default is `16`.
-    ///
-    /// 设置清理死读者槽的间隔。
-    /// 每隔 `interval` 个回收周期进行一次清理。
-    /// 默认为 `16`。
-    #[inline]
-    pub fn cleanup_interval(mut self, interval: usize) -> Self {
-        self.cleanup_interval = interval;
-        self
-    }
-
     /// Creates a new SWMR cell with the configured settings and initial value.
     ///
     /// 使用配置的设置和初始值创建一个新的 SWMR 单元。
@@ -246,8 +218,6 @@ impl<T: Send + 'static> SwmrCellBuilder<T> {
             ptr,
             garbage: GarbageSet::new(),
             auto_reclaim_threshold: self.auto_reclaim_threshold,
-            collection_counter: 0,
-            cleanup_interval: self.cleanup_interval,
         }
     }
 }

@@ -643,37 +643,3 @@ fn loom_reader_holds_guard_during_updates() {
         t.join().unwrap();
     });
 }
-
-/// Test: Builder with custom cleanup interval
-#[test]
-fn loom_builder_custom_cleanup_interval() {
-    loom::model(|| {
-        let mut cell = SwmrCell::builder()
-            .cleanup_interval(1) // Cleanup every collection
-            .build(1i32);
-        let local = cell.local();
-
-        // Store and collect
-        cell.store(2i32);
-        cell.collect();
-
-        let guard = local.pin();
-        assert_eq!(*guard, 2);
-    });
-}
-
-/// Test: Zero cleanup interval (disabled cleanup)
-#[test]
-fn loom_builder_zero_cleanup_interval() {
-    loom::model(|| {
-        let mut cell = SwmrCell::builder()
-            .cleanup_interval(0) // No periodic cleanup
-            .build(42i32);
-        let local = cell.local();
-
-        cell.collect();
-
-        let guard = local.pin();
-        assert_eq!(*guard, 42);
-    });
-}
