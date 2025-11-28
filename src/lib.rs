@@ -64,8 +64,7 @@ pub(crate) const INACTIVE_VERSION: usize = usize::MAX;
 /// `SwmrCell` 提供安全的并发访问，其中一个写入者可以更新值，
 /// 多个读者可以并发读取它。读者通过创建 `LocalReader` 并 pin 来访问值。
 pub struct SwmrCell<T: 'static> {
-    shared: Arc<SharedState>,
-    ptr: Arc<AtomicPtr<T>>,
+    shared: Arc<SharedState<T>>,
     garbage: GarbageSet<T>,
     auto_reclaim_threshold: Option<usize>,
 }
@@ -100,7 +99,7 @@ impl<T: 'static> SwmrCell<T> {
     /// `LocalReader` 是 `!Sync` 的，不应在线程之间共享。
     #[inline]
     pub fn local(&self) -> LocalReader<T> {
-        LocalReader::new(self.shared.clone(), self.ptr.clone())
+        LocalReader::new(self.shared.clone())
     }
 
     /// Store a new value, making it visible to readers.
@@ -113,7 +112,7 @@ impl<T: 'static> SwmrCell<T> {
     /// 此操作会增加全局版本。
     pub fn store(&mut self, data: T) {
         let new_ptr = Box::into_raw(Box::new(data));
-        let old_ptr = self.ptr.swap(new_ptr, Ordering::Release);
+        let old_ptr = self.shared.ptr.swap(new_ptr, Ordering::Release);
 
         // Increment global version.
         // The old value belongs to the previous version (the one before this increment).
@@ -253,14 +252,12 @@ impl<T: 'static> SwmrCellBuilder<T> {
         let shared = Arc::new(SharedState {
             global_version: AtomicUsize::new(0),
             min_active_version: AtomicUsize::new(0),
+            ptr: AtomicPtr::new(Box::into_raw(Box::new(data))),
             readers: Mutex::new(Vec::new()),
         });
 
-        let ptr = Arc::new(AtomicPtr::new(Box::into_raw(Box::new(data))));
-
         SwmrCell {
             shared,
-            ptr,
             garbage: GarbageSet::new(),
             auto_reclaim_threshold: self.auto_reclaim_threshold,
         }
@@ -355,19 +352,21 @@ pub(crate) struct ReaderSlot {
 
 /// Global shared state for the version GC domain.
 ///
-/// Contains the global version, the minimum active version, and the list of reader slots.
+/// Contains the global version, the minimum active version, the data pointer, and the list of reader slots.
 ///
 /// version GC 域的全局共享状态。
-/// 包含全局版本、最小活跃版本和读者槽列表。
-#[derive(Debug)]
+/// 包含全局版本、最小活跃版本、数据指针和读者槽列表。
 #[repr(align(64))]
-pub(crate) struct SharedState {
+pub(crate) struct SharedState<T: 'static> {
     /// The global monotonic version counter.
     /// 全局单调版本计数器。
     pub(crate) global_version: AtomicUsize,
     /// The minimum version among all active readers (cached for performance).
     /// 所有活跃读者中的最小版本（为性能而缓存）。
     pub(crate) min_active_version: AtomicUsize,
+    /// The current data pointer.
+    /// 当前数据指针。
+    pub(crate) ptr: AtomicPtr<T>,
     /// List of all registered reader slots. Protected by a Mutex.
     /// 所有注册读者槽的列表。由 Mutex 保护。
     pub(crate) readers: Mutex<Vec<Arc<ReaderSlot>>>,
@@ -393,13 +392,12 @@ pub(crate) struct SharedState {
 /// **线程安全性**：`LocalReader` 不是 `Sync` 的，必须仅由一个线程使用。
 pub struct LocalReader<T: 'static> {
     slot: Arc<ReaderSlot>,
-    shared: Arc<SharedState>,
-    ptr: Arc<AtomicPtr<T>>,
+    shared: Arc<SharedState<T>>,
     pin_count: Cell<usize>,
 }
 
 impl<T: 'static> LocalReader<T> {
-    fn new(shared: Arc<SharedState>, ptr: Arc<AtomicPtr<T>>) -> Self {
+    fn new(shared: Arc<SharedState<T>>) -> Self {
         let slot = Arc::new(ReaderSlot {
             active_version: AtomicUsize::new(INACTIVE_VERSION),
         });
@@ -410,7 +408,6 @@ impl<T: 'static> LocalReader<T> {
         LocalReader {
             slot,
             shared,
-            ptr,
             pin_count: Cell::new(0),
         }
     }
@@ -471,7 +468,7 @@ impl<T: 'static> LocalReader<T> {
             // Since we're reentrant, we should see the same or newer pointer.
             // 加载与我们已 pin 版本对应的指针。
             // 由于是可重入的，我们应该看到相同或更新的指针。
-            let ptr = self.ptr.load(Ordering::Acquire);
+            let ptr = self.shared.ptr.load(Ordering::Acquire);
             
             return PinGuard { local: self, ptr };
         }
@@ -504,7 +501,7 @@ impl<T: 'static> LocalReader<T> {
 
         // Capture the pointer at pin time for snapshot semantics.
         // 在 pin 时捕获指针以实现快照语义。
-        let ptr = self.ptr.load(Ordering::Acquire);
+        let ptr = self.shared.ptr.load(Ordering::Acquire);
 
         PinGuard { local: self, ptr }
     }
@@ -513,7 +510,7 @@ impl<T: 'static> LocalReader<T> {
 impl<T: 'static> Clone for LocalReader<T> {
     #[inline]
     fn clone(&self) -> Self {
-        Self::new(self.shared.clone(), self.ptr.clone())
+        Self::new(self.shared.clone())
     }
 }
 
