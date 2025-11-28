@@ -267,3 +267,183 @@ fn test_previous_with_struct() {
     assert_eq!(prev.value, 1);
     assert_eq!(prev.name, "first");
 }
+
+// ============================================================================
+// New API Tests
+// ============================================================================
+
+/// Test 16: get() returns current value
+#[test]
+fn test_get_returns_current_value() {
+    let mut cell = SwmrCell::new(42i32);
+    assert_eq!(*cell.get(), 42);
+
+    cell.store(100);
+    assert_eq!(*cell.get(), 100);
+}
+
+/// Test 17: update() with closure
+#[test]
+fn test_update_with_closure() {
+    let mut cell = SwmrCell::new(10i32);
+    
+    cell.update(|v| v + 5);
+    assert_eq!(*cell.get(), 15);
+
+    cell.update(|v| v * 2);
+    assert_eq!(*cell.get(), 30);
+}
+
+/// Test 18: replace() returns old value
+#[test]
+fn test_replace_returns_old_value() {
+    let mut cell = SwmrCell::new(1i32);
+    
+    let old = cell.replace(2);
+    assert_eq!(old, 1);
+    assert_eq!(*cell.get(), 2);
+
+    let old = cell.replace(3);
+    assert_eq!(old, 2);
+    assert_eq!(*cell.get(), 3);
+}
+
+/// Test 21: version() returns current version
+#[test]
+fn test_version_returns_current_version() {
+    let mut cell = SwmrCell::new(0i32);
+    assert_eq!(cell.version(), 0);
+
+    cell.store(1);
+    assert_eq!(cell.version(), 1);
+
+    cell.store(2);
+    assert_eq!(cell.version(), 2);
+}
+
+/// Test 22: garbage_count() tracks retired objects
+#[test]
+fn test_garbage_count_tracks_retired_objects() {
+    let mut cell = SwmrCell::builder()
+        .auto_reclaim_threshold(None) // Disable auto-reclaim
+        .build(0i32);
+
+    assert_eq!(cell.garbage_count(), 0);
+
+    cell.store(1);
+    assert_eq!(cell.garbage_count(), 1);
+
+    cell.store(2);
+    assert_eq!(cell.garbage_count(), 2);
+
+    cell.store(3);
+    assert_eq!(cell.garbage_count(), 3);
+}
+
+/// Test 23: LocalReader::is_pinned()
+#[test]
+fn test_local_reader_is_pinned() {
+    let cell = SwmrCell::new(42i32);
+    let local = cell.local();
+
+    assert!(!local.is_pinned());
+
+    let guard = local.pin();
+    assert!(local.is_pinned());
+
+    drop(guard);
+    assert!(!local.is_pinned());
+}
+
+/// Test 24: LocalReader::version()
+#[test]
+fn test_local_reader_version() {
+    let mut cell = SwmrCell::new(0i32);
+    let local = cell.local();
+
+    assert_eq!(local.version(), 0);
+
+    cell.store(1);
+    assert_eq!(local.version(), 1);
+
+    cell.store(2);
+    assert_eq!(local.version(), 2);
+}
+
+/// Test 25: PinGuard::version()
+#[test]
+fn test_pin_guard_version() {
+    let mut cell = SwmrCell::new(0i32);
+    let local = cell.local();
+
+    let guard = local.pin();
+    assert_eq!(guard.version(), 0);
+    drop(guard);
+
+    cell.store(1);
+    let guard = local.pin();
+    assert_eq!(guard.version(), 1);
+}
+
+/// Test 26: PinGuard::as_ref()
+#[test]
+fn test_pin_guard_as_ref() {
+    let cell = SwmrCell::new(42i32);
+    let local = cell.local();
+    let guard = local.pin();
+
+    let value: &i32 = guard.as_ref();
+    assert_eq!(*value, 42);
+}
+
+/// Test 27: Default trait
+#[test]
+fn test_default_trait() {
+    let cell: SwmrCell<i32> = SwmrCell::default();
+    assert_eq!(*cell.get(), 0);
+
+    let cell: SwmrCell<String> = SwmrCell::default();
+    assert_eq!(*cell.get(), "");
+
+    let cell: SwmrCell<Vec<i32>> = SwmrCell::default();
+    assert!(cell.get().is_empty());
+}
+
+/// Test 28: From<T> trait
+#[test]
+fn test_from_trait() {
+    let cell: SwmrCell<i32> = SwmrCell::from(42);
+    assert_eq!(*cell.get(), 42);
+
+    let cell: SwmrCell<String> = SwmrCell::from(String::from("hello"));
+    assert_eq!(*cell.get(), "hello");
+}
+
+/// Test 29: Debug trait for SwmrCell
+#[test]
+fn test_debug_trait_swmr_cell() {
+    let cell = SwmrCell::new(42i32);
+    let debug_str = format!("{:?}", cell);
+    assert!(debug_str.contains("SwmrCell"));
+    assert!(debug_str.contains("42"));
+}
+
+/// Test 30: Debug trait for LocalReader
+#[test]
+fn test_debug_trait_local_reader() {
+    let cell = SwmrCell::new(42i32);
+    let local = cell.local();
+    let debug_str = format!("{:?}", local);
+    assert!(debug_str.contains("LocalReader"));
+}
+
+/// Test 31: Debug trait for PinGuard
+#[test]
+fn test_debug_trait_pin_guard() {
+    let cell = SwmrCell::new(42i32);
+    let local = cell.local();
+    let guard = local.pin();
+    let debug_str = format!("{:?}", guard);
+    assert!(debug_str.contains("PinGuard"));
+    assert!(debug_str.contains("42"));
+}

@@ -239,3 +239,129 @@ fn test_reader_holds_guard_during_updates() {
 
     t.join().unwrap();
 }
+
+// ============================================================================
+// New API Concurrent Tests
+// ============================================================================
+
+/// Test 13: version() consistency across threads
+#[test]
+fn test_version_consistency_across_threads() {
+    let mut cell = SwmrCell::new(0i32);
+    let local = cell.local();
+
+    let t = thread::spawn(move || {
+        for _ in 0..10 {
+            let guard = local.pin();
+            let version = guard.version();
+            let value = *guard;
+            // Version should be consistent with value progression
+            assert!(version as i32 >= value || value == 0);
+            thread::sleep(std::time::Duration::from_millis(5));
+        }
+    });
+
+    for i in 1..=20 {
+        cell.store(i);
+        thread::sleep(std::time::Duration::from_millis(2));
+    }
+
+    t.join().unwrap();
+}
+
+/// Test 14: is_pinned() correctness in threads
+#[test]
+fn test_is_pinned_correctness_in_threads() {
+    let cell = SwmrCell::new(0i32);
+    let local = cell.local();
+
+    let t = thread::spawn(move || {
+        assert!(!local.is_pinned());
+        
+        let guard = local.pin();
+        assert!(local.is_pinned());
+        
+        drop(guard);
+        assert!(!local.is_pinned());
+    });
+
+    t.join().unwrap();
+}
+
+/// Test 15: get() and store() interleaving
+#[test]
+fn test_get_and_store_interleaving() {
+    let mut cell = SwmrCell::new(0i32);
+
+    for i in 0..100 {
+        assert_eq!(*cell.get(), i);
+        cell.store(i + 1);
+        assert_eq!(*cell.get(), i + 1);
+    }
+}
+
+/// Test 16: update() with concurrent readers
+#[test]
+fn test_update_with_concurrent_readers() {
+    let mut cell = SwmrCell::new(0i32);
+    let local = cell.local();
+
+    let t = thread::spawn(move || {
+        for _ in 0..50 {
+            let guard = local.pin();
+            assert!(*guard >= 0);
+        }
+    });
+
+    for _ in 0..20 {
+        cell.update(|v| v + 1);
+    }
+
+    t.join().unwrap();
+    assert_eq!(*cell.get(), 20);
+}
+
+/// Test 17: replace() with concurrent readers
+#[test]
+fn test_replace_with_concurrent_readers() {
+    let mut cell = SwmrCell::new(0i32);
+    let local = cell.local();
+
+    let t = thread::spawn(move || {
+        for _ in 0..50 {
+            let guard = local.pin();
+            assert!(*guard >= 0);
+        }
+    });
+
+    for i in 1..=20 {
+        let old = cell.replace(i);
+        assert_eq!(old, i - 1);
+    }
+
+    t.join().unwrap();
+}
+
+/// Test 18: LocalReader::version() tracks global version
+#[test]
+fn test_local_reader_version_tracks_global() {
+    let mut cell = SwmrCell::new(0i32);
+    let local = cell.local();
+
+    let t = thread::spawn(move || {
+        let mut last_version = 0;
+        for _ in 0..50 {
+            let current_version = local.version();
+            assert!(current_version >= last_version);
+            last_version = current_version;
+            thread::sleep(std::time::Duration::from_millis(1));
+        }
+    });
+
+    for i in 1..=30 {
+        cell.store(i);
+        thread::sleep(std::time::Duration::from_millis(1));
+    }
+
+    t.join().unwrap();
+}

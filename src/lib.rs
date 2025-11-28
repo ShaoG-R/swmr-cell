@@ -42,7 +42,7 @@ mod sync;
 mod tests;
 
 use crate::sync::*;
-use std::{collections::VecDeque, marker::PhantomData, ops::Deref, vec::Vec};
+use std::{collections::VecDeque, fmt, marker::PhantomData, ops::Deref, vec::Vec};
 
 /// Default threshold for automatic garbage reclamation (count of retired nodes).
 /// 自动垃圾回收的默认阈值（已退休节点的数量）。
@@ -172,6 +172,76 @@ impl<T: 'static> SwmrCell<T> {
     #[inline]
     pub fn previous(&self) -> Option<&T> {
         self.garbage.back()
+    }
+
+    /// Get a reference to the current value (writer-only, no pinning required).
+    ///
+    /// This is only accessible from the writer thread since `SwmrCell` is `!Sync`.
+    ///
+    /// 获取当前值的引用（仅写者可用，无需 pin）。
+    /// 这只能从写者线程访问，因为 `SwmrCell` 是 `!Sync` 的。
+    #[inline]
+    pub fn get(&self) -> &T {
+        // Safety: We own the writer, and the current pointer is always valid.
+        // 安全性：我们拥有写者，当前指针始终有效。
+        unsafe { &*self.shared.ptr.load(Ordering::Acquire) }
+    }
+
+    /// Update the value using a closure.
+    ///
+    /// The closure receives the current value and should return the new value.
+    /// This is equivalent to `cell.store(f(cell.get().clone()))` but more ergonomic.
+    ///
+    /// 使用闭包更新值。
+    /// 闭包接收当前值并应返回新值。
+    /// 这相当于 `cell.store(f(cell.get().clone()))` 但更符合人体工程学。
+    #[inline]
+    pub fn update<F>(&mut self, f: F)
+    where
+        F: FnOnce(&T) -> T,
+    {
+        let new_value = f(self.get());
+        self.store(new_value);
+    }
+
+    /// Replace the current value with a new one, returning the old value.
+    ///
+    /// Unlike `store()`, this returns the previous value instead of retiring it.
+    /// The returned value is removed from the garbage collection system.
+    ///
+    /// 用新值替换当前值，返回旧值。
+    /// 与 `store()` 不同，这会返回之前的值而不是将其退休。
+    /// 返回的值从垃圾回收系统中移除。
+    #[inline]
+    pub fn replace(&mut self, data: T) -> T {
+        let new_ptr = Box::into_raw(Box::new(data));
+        let old_ptr = self.shared.ptr.swap(new_ptr, Ordering::AcqRel);
+
+        // Increment global version.
+        self.shared.global_version.fetch_add(1, Ordering::AcqRel);
+
+        // Safety: old_ptr was created by Box::into_raw and we just swapped it out.
+        // 安全性：old_ptr 由 Box::into_raw 创建，我们刚刚将其交换出来。
+        unsafe { *Box::from_raw(old_ptr) }
+    }
+
+    /// Get the current global version.
+    ///
+    /// The version is incremented each time `store()` or `replace()` is called.
+    ///
+    /// 获取当前全局版本。
+    /// 每次调用 `store()` 或 `replace()` 时版本会增加。
+    #[inline]
+    pub fn version(&self) -> usize {
+        self.shared.global_version.load(Ordering::Acquire)
+    }
+
+    /// Get the number of retired objects waiting for garbage collection.
+    ///
+    /// 获取等待垃圾回收的已退休对象数量。
+    #[inline]
+    pub fn garbage_count(&self) -> usize {
+        self.garbage.len()
     }
 
     /// Manually trigger garbage collection.
@@ -453,6 +523,27 @@ impl<T: 'static> LocalReader<T> {
     /// ```
     ///
     /// 当被钉住时，线程被认为在特定版本"活跃"，垃圾回收器不会回收该版本的数据。
+    /// Check if this reader is currently pinned.
+    ///
+    /// 检查此读者当前是否被 pin。
+    #[inline]
+    pub fn is_pinned(&self) -> bool {
+        self.pin_count.get() > 0
+    }
+
+    /// Get the current global version.
+    ///
+    /// Note: This returns the global version, not the pinned version.
+    /// To get the pinned version, use `PinGuard::version()`.
+    ///
+    /// 获取当前全局版本。
+    /// 注意：这返回全局版本，而不是 pin 的版本。
+    /// 要获取 pin 的版本，请使用 `PinGuard::version()`。
+    #[inline]
+    pub fn version(&self) -> usize {
+        self.shared.global_version.load(Ordering::Acquire)
+    }
+
     #[inline]
     pub fn pin(&self) -> PinGuard<'_, T> {
         let pin_count = self.pin_count.get();
@@ -469,8 +560,9 @@ impl<T: 'static> LocalReader<T> {
             // 加载与我们已 pin 版本对应的指针。
             // 由于是可重入的，我们应该看到相同或更新的指针。
             let ptr = self.shared.ptr.load(Ordering::Acquire);
+            let version = self.slot.active_version.load(Ordering::Acquire);
             
-            return PinGuard { local: self, ptr };
+            return PinGuard { local: self, ptr, version };
         }
 
         // First pin: need to acquire a version and validate it.
@@ -499,11 +591,12 @@ impl<T: 'static> LocalReader<T> {
 
         self.pin_count.set(1);
 
-        // Capture the pointer at pin time for snapshot semantics.
-        // 在 pin 时捕获指针以实现快照语义。
+        // Capture the pointer and version at pin time for snapshot semantics.
+        // 在 pin 时捕获指针和版本以实现快照语义。
         let ptr = self.shared.ptr.load(Ordering::Acquire);
+        let version = self.slot.active_version.load(Ordering::Acquire);
 
-        PinGuard { local: self, ptr }
+        PinGuard { local: self, ptr, version }
     }
 }
 
@@ -548,6 +641,19 @@ pub struct PinGuard<'a, T: 'static> {
     /// The pointer captured at pin time for snapshot semantics.
     /// 在 pin 时捕获的指针，用于快照语义。
     ptr: *const T,
+    /// The version at pin time.
+    /// pin 时的版本。
+    version: usize,
+}
+
+impl<T: 'static> PinGuard<'_, T> {
+    /// Get the version that this guard is pinned to.
+    ///
+    /// 获取此守卫被 pin 到的版本。
+    #[inline]
+    pub fn version(&self) -> usize {
+        self.version
+    }
 }
 
 impl<'a, T> Deref for PinGuard<'a, T> {
@@ -599,6 +705,7 @@ impl<'a, T> Clone for PinGuard<'a, T> {
         PinGuard {
             local: self.local,
             ptr: self.ptr,
+            version: self.version,
         }
     }
 }
@@ -622,5 +729,68 @@ impl<'a, T> Drop for PinGuard<'a, T> {
         }
 
         self.local.pin_count.set(pin_count - 1);
+    }
+}
+
+impl<T: 'static> AsRef<T> for PinGuard<'_, T> {
+    #[inline]
+    fn as_ref(&self) -> &T {
+        self.deref()
+    }
+}
+
+// ============================================================================
+// Standard Trait Implementations
+// 标准 trait 实现
+// ============================================================================
+
+impl<T: Default + 'static> Default for SwmrCell<T> {
+    /// Create a new SWMR cell with the default value.
+    ///
+    /// 使用默认值创建一个新的 SWMR 单元。
+    #[inline]
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
+impl<T: 'static> From<T> for SwmrCell<T> {
+    /// Create a new SWMR cell from a value.
+    ///
+    /// 从一个值创建一个新的 SWMR 单元。
+    #[inline]
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<T: fmt::Debug + 'static> fmt::Debug for SwmrCell<T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SwmrCell")
+            .field("value", self.get())
+            .field("version", &self.version())
+            .field("garbage_count", &self.garbage_count())
+            .finish()
+    }
+}
+
+impl<T: 'static> fmt::Debug for LocalReader<T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LocalReader")
+            .field("is_pinned", &self.is_pinned())
+            .field("version", &self.version())
+            .finish()
+    }
+}
+
+impl<T: fmt::Debug + 'static> fmt::Debug for PinGuard<'_, T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PinGuard")
+            .field("value", &self.deref())
+            .field("version", &self.version)
+            .finish()
     }
 }

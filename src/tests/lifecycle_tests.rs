@@ -332,3 +332,152 @@ fn test_complete_lifecycle_scenario() {
         cell.collect();
     }
 }
+
+// ============================================================================
+// New API Lifecycle Tests
+// ============================================================================
+
+/// Test 21: get() lifetime does not outlive cell
+#[test]
+fn test_get_lifetime_bound_to_cell() {
+    let cell = SwmrCell::new(42i32);
+    let value_ref = cell.get();
+    assert_eq!(*value_ref, 42);
+    // value_ref is valid as long as cell is alive
+}
+
+/// Test 22: update() preserves garbage for previous()
+#[test]
+fn test_update_preserves_previous() {
+    let mut cell = SwmrCell::new(1i32);
+    
+    cell.update(|v| v + 1);
+    assert_eq!(cell.previous(), Some(&1));
+    
+    cell.update(|v| v * 2);
+    assert_eq!(cell.previous(), Some(&2));
+}
+
+/// Test 23: replace() and previous() interaction
+#[test]
+fn test_replace_and_previous_interaction() {
+    let mut cell = SwmrCell::new(1i32);
+    
+    // replace() returns old value directly, doesn't add to garbage
+    let old = cell.replace(2);
+    assert_eq!(old, 1);
+    
+    // previous() should still be None since replace() doesn't retire
+    assert!(cell.previous().is_none());
+    
+    // store() adds to garbage
+    cell.store(3);
+    assert_eq!(cell.previous(), Some(&2));
+}
+
+/// Test 24: version consistency throughout lifecycle
+#[test]
+fn test_version_consistency_lifecycle() {
+    let mut cell = SwmrCell::new(0i32);
+    let local = cell.local();
+    
+    for i in 0..10 {
+        assert_eq!(cell.version(), i);
+        assert_eq!(local.version(), i);
+        
+        let guard = local.pin();
+        assert_eq!(guard.version(), i);
+        drop(guard);
+        
+        cell.store(i as i32 + 1);
+    }
+}
+
+/// Test 25: garbage_count lifecycle
+#[test]
+fn test_garbage_count_lifecycle() {
+    let mut cell = SwmrCell::builder()
+        .auto_reclaim_threshold(None)
+        .build(0i32);
+    
+    // Initially no garbage
+    assert_eq!(cell.garbage_count(), 0);
+    
+    // store() adds garbage
+    for i in 1..=5 {
+        cell.store(i);
+        assert_eq!(cell.garbage_count(), i as usize);
+    }
+    
+    // replace() does not add garbage
+    cell.replace(100);
+    assert_eq!(cell.garbage_count(), 5);
+    
+    // collect() reduces garbage
+    cell.collect();
+    assert!(cell.garbage_count() <= 5);
+}
+
+/// Test 26: is_pinned lifecycle with clone
+#[test]
+fn test_is_pinned_lifecycle_with_clone() {
+    let cell = SwmrCell::new(42i32);
+    let local = cell.local();
+    
+    assert!(!local.is_pinned());
+    
+    let guard1 = local.pin();
+    assert!(local.is_pinned());
+    
+    let guard2 = guard1.clone();
+    assert!(local.is_pinned());
+    
+    drop(guard1);
+    assert!(local.is_pinned()); // guard2 still holds
+    
+    drop(guard2);
+    assert!(!local.is_pinned());
+}
+
+/// Test 28: PinGuard version preserved across writes
+#[test]
+fn test_pin_guard_version_preserved() {
+    let mut cell = SwmrCell::new(0i32);
+    let local = cell.local();
+    
+    let guard = local.pin();
+    let initial_version = guard.version();
+    
+    // Write multiple times
+    for i in 1..=10 {
+        cell.store(i);
+    }
+    
+    // Guard version should not change
+    assert_eq!(guard.version(), initial_version);
+    
+    // But value seen by guard is the snapshot
+    assert_eq!(*guard, 0);
+}
+
+/// Test 29: Default trait with complex lifecycle
+#[test]
+fn test_default_trait_lifecycle() {
+    let mut cell: SwmrCell<Vec<i32>> = SwmrCell::default();
+    let local = cell.local();
+    
+    assert!(cell.get().is_empty());
+    assert_eq!(cell.version(), 0);
+    
+    cell.update(|v| {
+        let mut new_v = v.clone();
+        new_v.push(1);
+        new_v
+    });
+    
+    assert_eq!(*cell.get(), vec![1]);
+    assert_eq!(cell.version(), 1);
+    
+    let guard = local.pin();
+    assert_eq!(*guard, vec![1]);
+}

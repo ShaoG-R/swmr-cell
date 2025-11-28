@@ -285,3 +285,149 @@ fn test_stress_high_frequency_operations() {
         }
     }
 }
+
+// ============================================================================
+// New API Edge Case Tests
+// ============================================================================
+
+/// Test 20: get() with zero-sized type
+#[test]
+fn test_get_with_zst() {
+    #[derive(Debug, PartialEq)]
+    struct ZeroSized;
+
+    let cell = SwmrCell::new(ZeroSized);
+    let _value = cell.get();
+}
+
+/// Test 21: update() with complex transformation
+#[test]
+fn test_update_with_complex_transformation() {
+    let mut cell = SwmrCell::new(vec![1, 2, 3]);
+    
+    cell.update(|v| {
+        let mut new_v = v.clone();
+        new_v.push(4);
+        new_v
+    });
+    
+    assert_eq!(*cell.get(), vec![1, 2, 3, 4]);
+}
+
+/// Test 22: replace() does not add to garbage
+#[test]
+fn test_replace_does_not_add_to_garbage() {
+    let mut cell = SwmrCell::builder()
+        .auto_reclaim_threshold(None)
+        .build(0i32);
+
+    assert_eq!(cell.garbage_count(), 0);
+
+    // replace() should NOT add old value to garbage
+    let old = cell.replace(1);
+    assert_eq!(old, 0);
+    assert_eq!(cell.garbage_count(), 0);
+
+    // store() DOES add old value to garbage
+    cell.store(2);
+    assert_eq!(cell.garbage_count(), 1);
+}
+
+/// Test 23: version increments on replace()
+#[test]
+fn test_version_increments_on_replace() {
+    let mut cell = SwmrCell::new(0i32);
+    assert_eq!(cell.version(), 0);
+
+    cell.replace(1);
+    assert_eq!(cell.version(), 1);
+
+    cell.replace(2);
+    assert_eq!(cell.version(), 2);
+}
+
+/// Test 24: garbage_count after collect
+#[test]
+fn test_garbage_count_after_collect() {
+    let mut cell = SwmrCell::builder()
+        .auto_reclaim_threshold(None)
+        .build(0i32);
+
+    for i in 1..=10 {
+        cell.store(i);
+    }
+    assert_eq!(cell.garbage_count(), 10);
+
+    cell.collect();
+    // After collect, some garbage should be reclaimed
+    // (but previous is always kept)
+    assert!(cell.garbage_count() < 10);
+}
+
+/// Test 25: is_pinned with nested pins
+#[test]
+fn test_is_pinned_with_nested_pins() {
+    let cell = SwmrCell::new(42i32);
+    let local = cell.local();
+
+    assert!(!local.is_pinned());
+
+    let guard1 = local.pin();
+    assert!(local.is_pinned());
+
+    let guard2 = local.pin();
+    assert!(local.is_pinned());
+
+    drop(guard1);
+    assert!(local.is_pinned()); // Still pinned because guard2 exists
+
+    drop(guard2);
+    assert!(!local.is_pinned());
+}
+
+/// Test 26: PinGuard version consistency
+#[test]
+fn test_pin_guard_version_consistency() {
+    let mut cell = SwmrCell::new(0i32);
+    let local = cell.local();
+
+    let guard1 = local.pin();
+    let v1 = guard1.version();
+
+    cell.store(1);
+
+    // Nested pin still returns original pinned version
+    let guard2 = local.pin();
+    assert_eq!(guard2.version(), v1);
+
+    drop(guard1);
+    drop(guard2);
+
+    // New pin gets new version
+    let guard3 = local.pin();
+    assert_eq!(guard3.version(), 1);
+}
+
+/// Test 27: update() triggers version increment
+#[test]
+fn test_update_triggers_version_increment() {
+    let mut cell = SwmrCell::new(0i32);
+    assert_eq!(cell.version(), 0);
+
+    cell.update(|v| v + 1);
+    assert_eq!(cell.version(), 1);
+
+    cell.update(|v| v + 1);
+    assert_eq!(cell.version(), 2);
+}
+
+/// Test 28: get() consistency with store
+#[test]
+fn test_get_consistency_with_store() {
+    let mut cell = SwmrCell::new(0i32);
+    
+    for i in 0..100 {
+        cell.store(i);
+        assert_eq!(*cell.get(), i);
+    }
+}
