@@ -136,6 +136,45 @@ impl<T: 'static> SwmrCell<T> {
         }
     }
 
+    /// Get a reference to the previously stored value, if any.
+    ///
+    /// Returns `None` if no previous value exists (i.e., only the initial value has been stored).
+    ///
+    /// **Note**: The previous value is guaranteed not to be garbage collected because
+    /// `collect()` uses `safety_limit = current_version - 2`, which always preserves
+    /// the most recently retired value (version = current_version - 1).
+    ///
+    /// This is useful for comparing the current value with the previous one,
+    /// or for implementing undo/rollback logic.
+    ///
+    /// 获取上一个存储值的引用（如果存在）。
+    ///
+    /// 如果不存在上一个值（即只存储了初始值），则返回 `None`。
+    ///
+    /// **注意**：上一个值保证不会被垃圾回收，因为 `collect()` 使用 `safety_limit = current_version - 2`，
+    /// 这始终保留最近退休的值（版本 = current_version - 1）。
+    ///
+    /// 这对于将当前值与上一个值进行比较，或实现撤销/回滚逻辑很有用。
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use swmr_cell::SwmrCell;
+    ///
+    /// let mut cell = SwmrCell::new(1);
+    /// assert!(cell.previous().is_none()); // No previous value yet
+    ///
+    /// cell.store(2);
+    /// assert_eq!(cell.previous(), Some(&1)); // Previous value is 1
+    ///
+    /// cell.store(3);
+    /// assert_eq!(cell.previous(), Some(&2)); // Previous value is 2
+    /// ```
+    #[inline]
+    pub fn previous(&self) -> Option<&T> {
+        self.garbage.back()
+    }
+
     /// Manually trigger garbage collection.
     /// 手动触发垃圾回收。
     pub fn collect(&mut self) {
@@ -144,6 +183,14 @@ impl<T: 'static> SwmrCell<T> {
 
         let current_version = self.shared.global_version.load(Ordering::Acquire);
 
+        // Safety limit ensures we never reclaim the most recent retired value (previous).
+        // The most recent retired value has version = current_version - 1.
+        // With safety_limit = current_version - 2, we only reclaim versions < current_version - 2,
+        // so the previous value (version = current_version - 1) is always preserved.
+        // 安全限制确保我们永远不会回收最近退休的值（previous）。
+        // 最近退休的值的版本 = current_version - 1。
+        // 使用 safety_limit = current_version - 2，我们只回收版本 < current_version - 2 的，
+        // 因此上一个值（版本 = current_version - 1）始终被保留。
         let safety_limit = current_version.saturating_sub(2);
 
         let mut min_active = current_version;
@@ -253,6 +300,13 @@ impl<T> GarbageSet<T> {
     #[inline]
     fn len(&self) -> usize {
         self.queue.len()
+    }
+
+    /// Get a reference to the most recently retired object (the previous value).
+    /// 获取最近退休对象（上一个值）的引用。
+    #[inline]
+    fn back(&self) -> Option<&T> {
+        self.queue.back().map(|(_, boxed)| boxed.as_ref())
     }
 
     /// Add a retired node to the set for the current version.

@@ -199,3 +199,71 @@ fn test_thread_safety() {
         assert_eq!(result, 0);
     }
 }
+
+/// Test 12: previous() returns None initially
+#[test]
+fn test_previous_none_initially() {
+    let cell = SwmrCell::new(42i32);
+    assert!(cell.previous().is_none());
+}
+
+/// Test 13: previous() returns the old value after store
+#[test]
+fn test_previous_after_store() {
+    let mut cell = SwmrCell::new(1i32);
+    assert!(cell.previous().is_none());
+
+    cell.store(2);
+    assert_eq!(cell.previous(), Some(&1));
+
+    cell.store(3);
+    assert_eq!(cell.previous(), Some(&2));
+
+    cell.store(4);
+    assert_eq!(cell.previous(), Some(&3));
+}
+
+/// Test 14: previous() survives garbage collection
+#[test]
+fn test_previous_survives_gc() {
+    let mut cell = SwmrCell::builder()
+        .auto_reclaim_threshold(None) // Disable auto-reclaim
+        .build(0i32);
+
+    // Store multiple values to create garbage
+    for i in 1..=10 {
+        cell.store(i);
+    }
+
+    // Manual collect
+    cell.collect();
+
+    // previous() should still return the last retired value (9)
+    // because safety_limit = current_version - 2 preserves it
+    assert_eq!(cell.previous(), Some(&9));
+}
+
+/// Test 15: previous() with complex type
+#[test]
+fn test_previous_with_struct() {
+    #[derive(Debug, PartialEq)]
+    struct Data {
+        value: i32,
+        name: String,
+    }
+
+    let mut cell = SwmrCell::new(Data {
+        value: 1,
+        name: "first".to_string(),
+    });
+    assert!(cell.previous().is_none());
+
+    cell.store(Data {
+        value: 2,
+        name: "second".to_string(),
+    });
+
+    let prev = cell.previous().unwrap();
+    assert_eq!(prev.value, 1);
+    assert_eq!(prev.name, "first");
+}
