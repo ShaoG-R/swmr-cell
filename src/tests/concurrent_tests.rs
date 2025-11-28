@@ -321,26 +321,6 @@ fn test_update_with_concurrent_readers() {
     assert_eq!(*cell.get(), 20);
 }
 
-/// Test 17: replace() with concurrent readers
-#[test]
-fn test_replace_with_concurrent_readers() {
-    let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
-
-    let t = thread::spawn(move || {
-        for _ in 0..50 {
-            let guard = local.pin();
-            assert!(*guard >= 0);
-        }
-    });
-
-    for i in 1..=20 {
-        let old = cell.replace(i);
-        assert_eq!(old, i - 1);
-    }
-
-    t.join().unwrap();
-}
 
 /// Test 18: LocalReader::version() tracks global version
 #[test]

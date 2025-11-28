@@ -294,32 +294,6 @@ fn test_update_with_closure() {
     assert_eq!(*cell.get(), 30);
 }
 
-/// Test 18: replace() returns old value
-#[test]
-fn test_replace_returns_old_value() {
-    let mut cell = SwmrCell::new(1i32);
-    
-    let old = cell.replace(2);
-    assert_eq!(old, 1);
-    assert_eq!(*cell.get(), 2);
-
-    let old = cell.replace(3);
-    assert_eq!(old, 2);
-    assert_eq!(*cell.get(), 3);
-}
-
-/// Test 21: version() returns current version
-#[test]
-fn test_version_returns_current_version() {
-    let mut cell = SwmrCell::new(0i32);
-    assert_eq!(cell.version(), 0);
-
-    cell.store(1);
-    assert_eq!(cell.version(), 1);
-
-    cell.store(2);
-    assert_eq!(cell.version(), 2);
-}
 
 /// Test 22: garbage_count() tracks retired objects
 #[test]

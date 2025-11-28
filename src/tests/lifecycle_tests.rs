@@ -358,23 +358,6 @@ fn test_update_preserves_previous() {
     assert_eq!(cell.previous(), Some(&2));
 }
 
-/// Test 23: replace() and previous() interaction
-#[test]
-fn test_replace_and_previous_interaction() {
-    let mut cell = SwmrCell::new(1i32);
-    
-    // replace() returns old value directly, doesn't add to garbage
-    let old = cell.replace(2);
-    assert_eq!(old, 1);
-    
-    // previous() should still be None since replace() doesn't retire
-    assert!(cell.previous().is_none());
-    
-    // store() adds to garbage
-    cell.store(3);
-    assert_eq!(cell.previous(), Some(&2));
-}
-
 /// Test 24: version consistency throughout lifecycle
 #[test]
 fn test_version_consistency_lifecycle() {
@@ -391,31 +374,6 @@ fn test_version_consistency_lifecycle() {
         
         cell.store(i as i32 + 1);
     }
-}
-
-/// Test 25: garbage_count lifecycle
-#[test]
-fn test_garbage_count_lifecycle() {
-    let mut cell = SwmrCell::builder()
-        .auto_reclaim_threshold(None)
-        .build(0i32);
-    
-    // Initially no garbage
-    assert_eq!(cell.garbage_count(), 0);
-    
-    // store() adds garbage
-    for i in 1..=5 {
-        cell.store(i);
-        assert_eq!(cell.garbage_count(), i as usize);
-    }
-    
-    // replace() does not add garbage
-    cell.replace(100);
-    assert_eq!(cell.garbage_count(), 5);
-    
-    // collect() reduces garbage
-    cell.collect();
-    assert!(cell.garbage_count() <= 5);
 }
 
 /// Test 26: is_pinned lifecycle with clone

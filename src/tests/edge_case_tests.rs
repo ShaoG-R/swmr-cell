@@ -314,38 +314,6 @@ fn test_update_with_complex_transformation() {
     assert_eq!(*cell.get(), vec![1, 2, 3, 4]);
 }
 
-/// Test 22: replace() does not add to garbage
-#[test]
-fn test_replace_does_not_add_to_garbage() {
-    let mut cell = SwmrCell::builder()
-        .auto_reclaim_threshold(None)
-        .build(0i32);
-
-    assert_eq!(cell.garbage_count(), 0);
-
-    // replace() should NOT add old value to garbage
-    let old = cell.replace(1);
-    assert_eq!(old, 0);
-    assert_eq!(cell.garbage_count(), 0);
-
-    // store() DOES add old value to garbage
-    cell.store(2);
-    assert_eq!(cell.garbage_count(), 1);
-}
-
-/// Test 23: version increments on replace()
-#[test]
-fn test_version_increments_on_replace() {
-    let mut cell = SwmrCell::new(0i32);
-    assert_eq!(cell.version(), 0);
-
-    cell.replace(1);
-    assert_eq!(cell.version(), 1);
-
-    cell.replace(2);
-    assert_eq!(cell.version(), 2);
-}
-
 /// Test 24: garbage_count after collect
 #[test]
 fn test_garbage_count_after_collect() {

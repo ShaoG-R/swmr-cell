@@ -204,27 +204,6 @@ impl<T: 'static> SwmrCell<T> {
         self.store(new_value);
     }
 
-    /// Replace the current value with a new one, returning the old value.
-    ///
-    /// Unlike `store()`, this returns the previous value instead of retiring it.
-    /// The returned value is removed from the garbage collection system.
-    ///
-    /// 用新值替换当前值，返回旧值。
-    /// 与 `store()` 不同，这会返回之前的值而不是将其退休。
-    /// 返回的值从垃圾回收系统中移除。
-    #[inline]
-    pub fn replace(&mut self, data: T) -> T {
-        let new_ptr = Box::into_raw(Box::new(data));
-        let old_ptr = self.shared.ptr.swap(new_ptr, Ordering::AcqRel);
-
-        // Increment global version.
-        self.shared.global_version.fetch_add(1, Ordering::AcqRel);
-
-        // Safety: old_ptr was created by Box::into_raw and we just swapped it out.
-        // 安全性：old_ptr 由 Box::into_raw 创建，我们刚刚将其交换出来。
-        unsafe { *Box::from_raw(old_ptr) }
-    }
-
     /// Get the current global version.
     ///
     /// The version is incremented each time `store()` or `replace()` is called.
