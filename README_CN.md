@@ -128,6 +128,26 @@ for i in 0..3 {
 }
 ```
 
+你也可以从现有的 `LocalReader` 获取 `SwmrReader`，以便将创建能力传递给另一个线程：
+
+```rust
+// 1. Share: 从 LocalReader 创建 SwmrReader
+let local_reader = cell.local();
+let swmr_reader = local_reader.share(); // 返回 SwmrReader
+thread::spawn(move || {
+    let local = swmr_reader.local();
+    // ...
+});
+
+// 2. Convert: 消耗 LocalReader 以获取 SwmrReader
+let local_reader = cell.local();
+let swmr_reader = local_reader.into_swmr(); // 消耗 local_reader
+thread::spawn(move || {
+    let local = swmr_reader.local();
+    // ...
+});
+```
+
 ## 配置
 
 你可以使用 `SwmrCell::builder()` 自定义垃圾回收行为：

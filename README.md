@@ -128,6 +128,26 @@ for i in 0..3 {
 }
 ```
 
+You can also obtain a `SwmrReader` from an existing `LocalReader` if you need to pass the capability to another thread:
+
+```rust
+// 1. Share: Create a SwmrReader from a LocalReader
+let local_reader = cell.local();
+let swmr_reader = local_reader.share(); // Returns SwmrReader
+thread::spawn(move || {
+    let local = swmr_reader.local();
+    // ...
+});
+
+// 2. Convert: Consume LocalReader to get SwmrReader
+let local_reader = cell.local();
+let swmr_reader = local_reader.into_swmr(); // Consumes local_reader
+thread::spawn(move || {
+    let local = swmr_reader.local();
+    // ...
+});
+```
+
 ## Configuration
 
 You can customize the garbage collection behavior using `SwmrCell::builder()`:

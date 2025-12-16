@@ -636,6 +636,36 @@ impl<T: 'static> LocalReader<T> {
             version,
         }
     }
+
+    /// Create a new `SwmrReader` from this `LocalReader`.
+    ///
+    /// `SwmrReader` is `Sync` + `Clone` and acts as a factory for `LocalReader`s.
+    /// This is equivalent to calling `swmr_cell.reader()`, but using the `LocalReader`'s reference to the shared state.
+    ///
+    /// 从此 `LocalReader` 创建一个新的 `SwmrReader`。
+    /// `SwmrReader` 是 `Sync` + `Clone` 的，充当 `LocalReader` 的工厂。
+    /// 这相当于调用 `swmr_cell.reader()`，但使用 `LocalReader` 对共享状态的引用。
+    #[inline]
+    pub fn share(&self) -> SwmrReader<T> {
+        SwmrReader {
+            shared: self.shared.clone(),
+        }
+    }
+
+    /// Convert this `LocalReader` into a `SwmrReader`.
+    ///
+    /// This consumes the `LocalReader` and returns a `SwmrReader`
+    /// that can be sent to another thread to create new `LocalReader`s.
+    ///
+    /// 将此 `LocalReader` 转换为 `SwmrReader`。
+    /// 这会消耗 `LocalReader` 并返回一个 `SwmrReader`，
+    /// 该 `SwmrReader` 可以发送到另一个线程以创建新 `LocalReader`。
+    #[inline]
+    pub fn into_swmr(self) -> SwmrReader<T> {
+        SwmrReader {
+            shared: self.shared.clone(),
+        }
+    }
 }
 
 impl<T: 'static> Clone for LocalReader<T> {
