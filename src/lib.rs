@@ -52,7 +52,6 @@ pub(crate) const AUTO_RECLAIM_THRESHOLD: usize = 16;
 /// 表示当前未被钉住到任何版本的读者。
 pub(crate) const INACTIVE_VERSION: usize = usize::MAX;
 
-
 /// A single-writer, multi-reader cell with version-based garbage collection.
 ///
 /// `SwmrCell` provides safe concurrent access where one writer can update the value
@@ -85,7 +84,7 @@ impl<T: 'static> SwmrCell<T> {
     pub fn builder() -> SwmrCellBuilder<T> {
         SwmrCellBuilder {
             auto_reclaim_threshold: Some(AUTO_RECLAIM_THRESHOLD),
-            marker: PhantomData::default()
+            marker: PhantomData::default(),
         }
     }
 
@@ -100,6 +99,21 @@ impl<T: 'static> SwmrCell<T> {
     #[inline]
     pub fn local(&self) -> LocalReader<T> {
         LocalReader::new(self.shared.clone())
+    }
+
+    /// Create a new `SwmrReader` that can be shared across threads.
+    ///
+    /// `SwmrReader` is `Sync` + `Clone` and acts as a factory for `LocalReader`s.
+    /// This is useful for distributing reader creation capability to other threads.
+    ///
+    /// 创建一个新的 `SwmrReader`，可以在线程之间共享。
+    /// `SwmrReader` 是 `Sync` + `Clone` 的，充当 `LocalReader` 的工厂。
+    /// 这对于将读者创建能力分发给其他线程很有用。
+    #[inline]
+    pub fn reader(&self) -> SwmrReader<T> {
+        SwmrReader {
+            shared: self.shared.clone(),
+        }
     }
 
     /// Store a new value, making it visible to readers.
@@ -255,24 +269,65 @@ impl<T: 'static> SwmrCell<T> {
         // Clean up dead reader slots (strong_count == 1 means only SharedState holds it)
         // 清理死读者槽（strong_count == 1 表示只有 SharedState 持有它）
         shared_readers.retain(|arc_slot| Arc::strong_count(arc_slot) > 1);
-        
+
         drop(shared_readers);
 
         let reclaim_threshold = min_active.min(safety_limit);
 
-        self.shared.min_active_version.store(reclaim_threshold, Ordering::Release);
+        self.shared
+            .min_active_version
+            .store(reclaim_threshold, Ordering::Release);
 
         self.garbage.collect(reclaim_threshold, current_version);
     }
 }
 
+/// A handle for creating `LocalReader`s that can be shared across threads.
+///
+/// Unlike `LocalReader`, which is `!Sync` and bound to a single thread,
+/// `SwmrReader` is `Sync` and `Clone`. It holds a reference to the shared state
+/// but does not register a reader slot until `local()` is called.
+///
+/// 可以跨线程共享的用于创建 `LocalReader` 的句柄。
+///
+/// 与 `!Sync` 且绑定到单个线程的 `LocalReader` 不同，
+/// `SwmrReader` 是 `Sync` 和 `Clone` 的。它持有对共享状态的引用，
+/// 但直到调用 `local()` 时才注册读者槽。
+pub struct SwmrReader<T: 'static> {
+    shared: Arc<SharedState<T>>,
+}
+
+impl<T: 'static> SwmrReader<T> {
+    /// Create a new `LocalReader` for the current thread.
+    ///
+    /// 为当前线程创建一个新的 `LocalReader`。
+    #[inline]
+    pub fn local(&self) -> LocalReader<T> {
+        LocalReader::new(self.shared.clone())
+    }
+}
+
+impl<T: 'static> Clone for SwmrReader<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            shared: self.shared.clone(),
+        }
+    }
+}
+
+impl<T: 'static> fmt::Debug for SwmrReader<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SwmrReader").finish()
+    }
+}
 
 /// A builder for configuring and creating a SWMR cell.
 ///
 /// 用于配置和创建 SWMR 单元的构建器。
 pub struct SwmrCellBuilder<T> {
     auto_reclaim_threshold: Option<usize>,
-    marker: PhantomData<T>
+    marker: PhantomData<T>,
 }
 
 impl<T: 'static> SwmrCellBuilder<T> {
@@ -312,8 +367,6 @@ impl<T: 'static> SwmrCellBuilder<T> {
         }
     }
 }
-
-
 
 /// Manages retired objects and their reclamation.
 ///
@@ -382,8 +435,6 @@ impl<T> GarbageSet<T> {
         }
     }
 }
-
-
 
 /// A slot allocated for a reader thread to record its active version.
 ///
@@ -460,7 +511,7 @@ impl<T: 'static> LocalReader<T> {
             pin_count: Cell::new(0),
         }
     }
-    
+
     /// Pin this thread to the current version.
     ///
     /// Returns a `PinGuard` that keeps the thread pinned for its lifetime.
@@ -533,22 +584,26 @@ impl<T: 'static> LocalReader<T> {
         // 只需增加计数并复用现有的 pinned 指针。
         if pin_count > 0 {
             self.pin_count.set(pin_count + 1);
-            
+
             // Load the pointer that corresponds to our already-pinned version.
             // Since we're reentrant, we should see the same or newer pointer.
             // 加载与我们已 pin 版本对应的指针。
             // 由于是可重入的，我们应该看到相同或更新的指针。
             let ptr = self.shared.ptr.load(Ordering::Acquire);
             let version = self.slot.active_version.load(Ordering::Acquire);
-            
-            return PinGuard { local: self, ptr, version };
+
+            return PinGuard {
+                local: self,
+                ptr,
+                version,
+            };
         }
 
         // First pin: need to acquire a version and validate it.
         // 首次 pin：需要获取版本并验证。
         loop {
             let current_version = self.shared.global_version.load(Ordering::Acquire);
-            
+
             self.slot
                 .active_version
                 .store(current_version, Ordering::Release);
@@ -556,11 +611,11 @@ impl<T: 'static> LocalReader<T> {
             // Check if our version is still valid (not yet reclaimed).
             // 检查我们的版本是否仍然有效（尚未被回收）。
             let min_active = self.shared.min_active_version.load(Ordering::Acquire);
-            
+
             if current_version >= min_active {
                 break;
             }
-            
+
             // Version was reclaimed between our read and store.
             // Retry with a fresh version.
             // 版本在我们读取和存储之间被回收了。
@@ -575,7 +630,11 @@ impl<T: 'static> LocalReader<T> {
         let ptr = self.shared.ptr.load(Ordering::Acquire);
         let version = self.slot.active_version.load(Ordering::Acquire);
 
-        PinGuard { local: self, ptr, version }
+        PinGuard {
+            local: self,
+            ptr,
+            version,
+        }
     }
 }
 

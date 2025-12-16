@@ -102,6 +102,32 @@ fn main() {
 }
 ```
 
+### 使用 `SwmrReader` 共享读取者创建能力
+
+如果需要将创建读取者的能力分发给多个线程（例如，在线程动态变化的线程池中），可以使用 `SwmrReader`。与 `LocalReader` 不同，`SwmrReader` 是 `Sync` 和 `Clone` 的。
+
+```rust
+use swmr_cell::SwmrCell;
+use std::thread;
+
+let mut cell = SwmrCell::new(0);
+
+// 创建一个可以共享的 SwmrReader 工厂
+let reader_factory = cell.reader();
+
+for i in 0..3 {
+    // 为每个线程克隆工厂
+    let factory = reader_factory.clone();
+    
+    thread::spawn(move || {
+        // 使用工厂在线程上创建 LocalReader
+        let local = factory.local();
+        
+        // ... 使用 local reader ...
+    });
+}
+```
+
 ## 配置
 
 你可以使用 `SwmrCell::builder()` 自定义垃圾回收行为：

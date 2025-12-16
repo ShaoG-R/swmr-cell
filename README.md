@@ -102,6 +102,32 @@ fn main() {
 }
 ```
 
+### Using `SwmrReader` for Shared Reader Creation
+
+If you need to distribute the ability to create readers to multiple threads (e.g., in a thread pool where threads are dynamic), you can use `SwmrReader`. Unlike `LocalReader`, `SwmrReader` is `Sync` and `Clone`.
+
+```rust
+use swmr_cell::SwmrCell;
+use std::thread;
+
+let mut cell = SwmrCell::new(0);
+
+// Create a SwmrReader factory that can be shared
+let reader_factory = cell.reader();
+
+for i in 0..3 {
+    // Clone the factory for each thread
+    let factory = reader_factory.clone();
+    
+    thread::spawn(move || {
+        // Create a LocalReader on the thread using the factory
+        let local = factory.local();
+        
+        // ... use local reader ...
+    });
+}
+```
+
 ## Configuration
 
 You can customize the garbage collection behavior using `SwmrCell::builder()`:
