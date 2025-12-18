@@ -48,8 +48,8 @@ mod shim;
 
 #[cfg(test)]
 mod tests;
-use core::{fmt, marker::PhantomData, ops::Deref};
 use crate::shim::{Arc, AtomicPtr, AtomicUsize, Box, Cell, Mutex, Ordering, Vec, VecDeque};
+use core::{fmt, marker::PhantomData, ops::Deref};
 
 /// Default threshold for automatic garbage reclamation (count of retired nodes).
 /// 自动垃圾回收的默认阈值（已退休节点的数量）。
@@ -477,6 +477,19 @@ pub(crate) struct SharedState<T: 'static> {
     /// List of all registered reader slots. Protected by a Mutex.
     /// 所有注册读者槽的列表。由 Mutex 保护。
     pub(crate) readers: Mutex<Vec<Arc<ReaderSlot>>>,
+}
+
+impl<T: 'static> Drop for SharedState<T> {
+    fn drop(&mut self) {
+        // Drop the current value held by ptr to avoid leaking it.
+        // Drop ptr 持有的当前值，以避免泄漏。
+        let ptr = self.ptr.load(Ordering::Acquire);
+        if !ptr.is_null() {
+            unsafe {
+                drop(Box::from_raw(ptr));
+            }
+        }
+    }
 }
 
 /// A reader thread's local version state.
