@@ -18,6 +18,7 @@
   - Readers use atomic operations to register their active version.
   - The writer uses a mutex only for managing reader registration and scanning reader states during collection.
 - **Configurable GC**: Supports automatic or manual garbage collection with tunable thresholds.
+- **no_std Support**: Compatible with `no_std` environments using `alloc` and `spin`.
 - **Type-Safe**: Full Rust ownership and lifetime safety.
 
 ## Usage
@@ -27,6 +28,15 @@ Add `swmr-cell` to your `Cargo.toml`:
 ```toml
 [dependencies]
 swmr-cell = "0.1"
+```
+
+### no_std Support
+
+To use `swmr-cell` in a `no_std` environment, disable the default features and enable the `spin` feature. Note that this crate relies on `alloc`, so a global allocator must be available.
+
+```toml
+[dependencies]
+swmr-cell = { version = "0.1", default-features = false, features = ["spin"] }
 ```
 
 ### Basic Example

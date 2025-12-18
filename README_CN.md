@@ -18,6 +18,7 @@
   - 读取者使用原子操作注册其活跃版本。
   - 写入者仅在管理读取者注册和在回收期间扫描读取者状态时使用互斥锁。
 - **可配置的 GC**：支持带有可调阈值的自动或手动垃圾回收。
+- **no_std 支持**：兼容 `no_std` 环境（依赖 `alloc`），需启用 `spin` 特性。
 - **类型安全**：完整的 Rust 所有权和生命周期安全保证。
 
 ## 使用方法
@@ -27,6 +28,15 @@
 ```toml
 [dependencies]
 swmr-cell = "0.1"
+```
+
+### no_std 支持
+
+要在 `no_std` 环境中使用 `swmr-cell`，请禁用默认特性并启用 `spin` 特性。注意：本库依赖 `alloc`，因此需要提供全局分配器。
+
+```toml
+[dependencies]
+swmr-cell = { version = "0.1", default-features = false, features = ["spin"] }
 ```
 
 ### 基本示例
