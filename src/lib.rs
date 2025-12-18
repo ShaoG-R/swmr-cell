@@ -48,15 +48,7 @@ mod shim;
 
 #[cfg(test)]
 mod tests;
-
-// --- 关键变化：统一 Import ---
-
-// 1. 从 core 引入通用 Trait (std 也是基于 core 的，所以这总是安全的)
 use core::{fmt, marker::PhantomData, ops::Deref};
-
-// 2. 从 sync 模块引入所有“可能变动”的类型
-// 无论是 std 下的 std::sync::Arc 还是 no_std 下的 alloc::sync::Arc
-// 现在都变成了 crate::sync::Arc
 use crate::shim::{Arc, AtomicPtr, AtomicUsize, Box, Cell, Mutex, Ordering, Vec, VecDeque};
 
 /// Default threshold for automatic garbage reclamation (count of retired nodes).
