@@ -64,7 +64,47 @@ pub use loom_mutex::Mutex;
 #[cfg(not(feature = "loom"))]
 mod locks {
     #[cfg(feature = "std")]
-    pub use antidote::Mutex;
+    mod std_mutex {
+        use std::ops::{Deref, DerefMut};
+        use std::sync;
+
+        /// Like `std::sync::Mutex` except that it does not poison itself.
+        pub struct Mutex<T: ?Sized>(sync::Mutex<T>);
+
+        impl<T> Mutex<T> {
+            #[inline]
+            pub fn new(t: T) -> Self {
+                Self(sync::Mutex::new(t))
+            }
+        }
+
+        impl<T: ?Sized> Mutex<T> {
+            #[inline]
+            pub fn lock(&self) -> MutexGuard<'_, T> {
+                MutexGuard(self.0.lock().unwrap_or_else(|e| e.into_inner()))
+            }
+        }
+
+        pub struct MutexGuard<'a, T: ?Sized + 'a>(sync::MutexGuard<'a, T>);
+
+        impl<'a, T: ?Sized> Deref for MutexGuard<'a, T> {
+            type Target = T;
+            #[inline]
+            fn deref(&self) -> &T {
+                self.0.deref()
+            }
+        }
+
+        impl<'a, T: ?Sized> DerefMut for MutexGuard<'a, T> {
+            #[inline]
+            fn deref_mut(&mut self) -> &mut T {
+                self.0.deref_mut()
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    pub use std_mutex::Mutex;
 
     #[cfg(not(feature = "std"))]
     pub use spin::Mutex;
