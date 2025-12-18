@@ -1,6 +1,9 @@
 /// Concurrent tests module
 use crate::SwmrCell;
+use std::prelude::v1::*;
 use std::thread;
+
+use std::vec;
 
 /// Test 1: Single writer, multiple readers concurrent reads
 #[test]
@@ -25,7 +28,7 @@ fn test_single_writer_multiple_readers_concurrent_reads() {
     }
 
     for handle in handles {
-        handle.join().unwrap();
+        let _: std::thread::Result<()> = handle.join();
     }
 }
 
@@ -136,7 +139,7 @@ fn test_active_reader_protects_garbage() {
 #[test]
 fn test_garbage_reclaimed_after_reader_drop() {
     let mut cell = SwmrCell::new(0i32);
-    
+
     {
         let local = cell.local();
         let _guard = local.pin();
@@ -145,7 +148,7 @@ fn test_garbage_reclaimed_after_reader_drop() {
         }
         // local dropped at end of scope
     }
-    
+
     // Collect
     cell.collect();
 }
@@ -188,7 +191,7 @@ fn test_high_concurrency_reads() {
     }
 
     for h in handles {
-        h.join().unwrap();
+        let _: std::thread::Result<()> = h.join();
     }
 }
 
@@ -277,10 +280,10 @@ fn test_is_pinned_correctness_in_threads() {
 
     let t = thread::spawn(move || {
         assert!(!local.is_pinned());
-        
+
         let guard = local.pin();
         assert!(local.is_pinned());
-        
+
         drop(guard);
         assert!(!local.is_pinned());
     });
@@ -320,7 +323,6 @@ fn test_update_with_concurrent_readers() {
     t.join().unwrap();
     assert_eq!(*cell.get(), 20);
 }
-
 
 /// Test 18: LocalReader::version() tracks global version
 #[test]

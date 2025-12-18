@@ -12,7 +12,8 @@ keywords = ["swmr", "wait-free", "rcu", "concurrency", "lock-free"]
 categories = ["concurrency", "data-structures", "memory-management"]
 
 [dependencies]
-antidote = "1.0.0"
+antidote = { version = "1.0.0", optional = true }
+spin = { version = "0.10", optional = true }
 loom = { version = "0.7", optional = true }
 
 [dev-dependencies]
@@ -20,4 +21,6 @@ crossbeam-epoch = "0.9"
 criterion = { version = "0.7", features = ["html_reports"] }
 
 [features]
+default = ["std"]
+std = ["dep:antidote"]
 loom = ["dep:loom"]

@@ -1,14 +1,20 @@
 /// Basic tests module
 /// Tests core functionality correctness
 use crate::SwmrCell;
+use std::prelude::v1::*;
 use std::thread;
+use std::thread::JoinHandle;
+
+use std::format;
+use std::string::ToString;
+use std::vec;
 
 /// Test 1: Create SwmrCell and basic usage
 #[test]
 fn test_create_swmr_cell_and_basic_usage() {
     let cell = SwmrCell::new(42i32);
     let local = cell.local();
-    
+
     // Verify local can pin
     let guard = local.pin();
     assert_eq!(*guard, 42);
@@ -71,7 +77,7 @@ fn test_writer_collect() {
     // We can't check garbage count directly as it's private.
     // But we can call collect.
     cell.collect();
-    
+
     // If it doesn't panic, it's good.
 }
 
@@ -107,7 +113,7 @@ fn test_multiple_locals() {
     // Both readers should work
     let guard1 = reader1.pin();
     let guard2 = reader2.pin();
-    
+
     assert_eq!(*guard1, 42);
     assert_eq!(*guard2, 42);
 }
@@ -159,7 +165,7 @@ fn test_multiple_swmr_instances() {
     let c1 = SwmrCell::new(10i32);
     let c2 = SwmrCell::new(20i32);
     let c3 = SwmrCell::new(30i32);
-    
+
     let r1 = c1.local();
     let r2 = c2.local();
     let r3 = c3.local();
@@ -192,7 +198,10 @@ fn test_thread_safety() {
         }));
     }
 
-    let results: Vec<i32> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let results: Vec<i32> = handles
+        .into_iter()
+        .map(|h: JoinHandle<i32>| h.join().unwrap())
+        .collect();
 
     assert_eq!(results.len(), 5);
     for &result in &results {
@@ -286,14 +295,13 @@ fn test_get_returns_current_value() {
 #[test]
 fn test_update_with_closure() {
     let mut cell = SwmrCell::new(10i32);
-    
+
     cell.update(|v| v + 5);
     assert_eq!(*cell.get(), 15);
 
     cell.update(|v| v * 2);
     assert_eq!(*cell.get(), 30);
 }
-
 
 /// Test 22: garbage_count() tracks retired objects
 #[test]

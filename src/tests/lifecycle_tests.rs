@@ -1,8 +1,12 @@
 /// Lifecycle and memory safety tests
 use crate::SwmrCell;
-use std::thread;
+use std::prelude::v1::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
+
+use std::format;
+use std::vec;
 
 /// Test 1: local guard lifetime constraint
 #[test]
@@ -69,7 +73,7 @@ fn test_reader_isolation_across_threads() {
 }
 
 /// Test 5: Writer single threaded constraint
-/// The type system enforces this (SwmrCell is !Sync? No, SwmrCell is Send but maybe !Clone), 
+/// The type system enforces this (SwmrCell is !Sync? No, SwmrCell is Send but maybe !Clone),
 /// but we can't easily test compilation failure here.
 /// We just assume if we can't clone SwmrCell, it's good.
 #[test]
@@ -109,7 +113,7 @@ fn test_multiple_swmr_independence() {
     let c1 = SwmrCell::new(10i32);
     let c2 = SwmrCell::new(20i32);
     let c3 = SwmrCell::new(30i32);
-    
+
     let r1 = c1.local();
     let r2 = c2.local();
     let r3 = c3.local();
@@ -187,7 +191,7 @@ fn test_concurrent_read_consistency() {
 fn test_reader_exit_cleanup() {
     let mut cell = SwmrCell::new(0i32);
     let local = cell.local();
-    
+
     let t = thread::spawn(move || {
         let _guard = local.pin();
     });
@@ -244,10 +248,10 @@ fn test_data_visibility_across_epochs() {
 
     let g2 = local.pin();
     assert_eq!(*g2, 1);
-    
+
     // Original reader still sees old data if it holds guard
     assert_eq!(*g1, 0);
-    
+
     // But if it pin again?
     let g1_new = local.pin();
     assert_eq!(*g1_new, 1);
@@ -263,7 +267,7 @@ fn test_rapid_reader_switching() {
         let guard = local.pin();
         assert_eq!(*guard, 42);
         drop(guard);
-        
+
         let guard = local.pin();
         assert_eq!(*guard, 42);
     }
@@ -317,18 +321,21 @@ fn test_complete_lifecycle_scenario() {
     }
 
     for round in 0..3 {
-        let guards: Vec<_> = readers.iter().map(|r| r.pin()).collect();
+        let guards: Vec<_> = readers
+            .iter()
+            .map(|r: &crate::LocalReader<String>| r.pin())
+            .collect();
 
         for guard in &guards {
-            assert!(!guard.is_empty());
+            assert!(!(*guard).is_empty());
         }
 
         cell.store(format!("round_{}", round));
-        
+
         for i in 0..50 {
             cell.store(format!("garbage_{}", i));
         }
-        
+
         cell.collect();
     }
 }
@@ -350,10 +357,10 @@ fn test_get_lifetime_bound_to_cell() {
 #[test]
 fn test_update_preserves_previous() {
     let mut cell = SwmrCell::new(1i32);
-    
+
     cell.update(|v| v + 1);
     assert_eq!(cell.previous(), Some(&1));
-    
+
     cell.update(|v| v * 2);
     assert_eq!(cell.previous(), Some(&2));
 }
@@ -363,15 +370,15 @@ fn test_update_preserves_previous() {
 fn test_version_consistency_lifecycle() {
     let mut cell = SwmrCell::new(0i32);
     let local = cell.local();
-    
+
     for i in 0..10 {
         assert_eq!(cell.version(), i);
         assert_eq!(local.version(), i);
-        
+
         let guard = local.pin();
         assert_eq!(guard.version(), i);
         drop(guard);
-        
+
         cell.store(i as i32 + 1);
     }
 }
@@ -381,18 +388,18 @@ fn test_version_consistency_lifecycle() {
 fn test_is_pinned_lifecycle_with_clone() {
     let cell = SwmrCell::new(42i32);
     let local = cell.local();
-    
+
     assert!(!local.is_pinned());
-    
+
     let guard1 = local.pin();
     assert!(local.is_pinned());
-    
+
     let guard2 = guard1.clone();
     assert!(local.is_pinned());
-    
+
     drop(guard1);
     assert!(local.is_pinned()); // guard2 still holds
-    
+
     drop(guard2);
     assert!(!local.is_pinned());
 }
@@ -402,18 +409,18 @@ fn test_is_pinned_lifecycle_with_clone() {
 fn test_pin_guard_version_preserved() {
     let mut cell = SwmrCell::new(0i32);
     let local = cell.local();
-    
+
     let guard = local.pin();
     let initial_version = guard.version();
-    
+
     // Write multiple times
     for i in 1..=10 {
         cell.store(i);
     }
-    
+
     // Guard version should not change
     assert_eq!(guard.version(), initial_version);
-    
+
     // But value seen by guard is the snapshot
     assert_eq!(*guard, 0);
 }
@@ -423,19 +430,19 @@ fn test_pin_guard_version_preserved() {
 fn test_default_trait_lifecycle() {
     let mut cell: SwmrCell<Vec<i32>> = SwmrCell::default();
     let local = cell.local();
-    
+
     assert!(cell.get().is_empty());
     assert_eq!(cell.version(), 0);
-    
-    cell.update(|v| {
+
+    cell.update(|v: &Vec<i32>| {
         let mut new_v = v.clone();
         new_v.push(1);
         new_v
     });
-    
+
     assert_eq!(*cell.get(), vec![1]);
     assert_eq!(cell.version(), 1);
-    
+
     let guard = local.pin();
     assert_eq!(*guard, vec![1]);
 }

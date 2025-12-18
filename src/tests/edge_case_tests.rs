@@ -1,6 +1,9 @@
 /// Edge case and stress tests
 use crate::SwmrCell;
+use std::prelude::v1::*;
 use std::thread;
+
+use std::vec;
 
 /// Test 1: Empty garbage collection
 #[test]
@@ -82,9 +85,14 @@ fn test_large_data_structure() {
 #[test]
 fn test_nested_structures() {
     #[derive(Debug, PartialEq)]
-    struct Inner { value: i32 }
+    struct Inner {
+        value: i32,
+    }
     #[derive(Debug, PartialEq)]
-    struct Outer { inner: Inner, name: String }
+    struct Outer {
+        inner: Inner,
+        name: String,
+    }
 
     let outer = Outer {
         inner: Inner { value: 42 },
@@ -166,7 +174,7 @@ fn test_readers_in_different_threads() {
     cell.store(1);
 
     for h in handles {
-        h.join().unwrap();
+        let _: std::thread::Result<()> = h.join();
     }
 }
 
@@ -256,7 +264,7 @@ fn test_dynamic_reader_registration() {
 
     let reader1 = cell.local();
     let reader2 = cell.local();
-    
+
     cell.collect();
 
     let _g1 = reader1.pin();
@@ -304,22 +312,20 @@ fn test_get_with_zst() {
 #[test]
 fn test_update_with_complex_transformation() {
     let mut cell = SwmrCell::new(vec![1, 2, 3]);
-    
-    cell.update(|v| {
+
+    cell.update(|v: &Vec<i32>| {
         let mut new_v = v.clone();
         new_v.push(4);
         new_v
     });
-    
+
     assert_eq!(*cell.get(), vec![1, 2, 3, 4]);
 }
 
 /// Test 24: garbage_count after collect
 #[test]
 fn test_garbage_count_after_collect() {
-    let mut cell = SwmrCell::builder()
-        .auto_reclaim_threshold(None)
-        .build(0i32);
+    let mut cell = SwmrCell::builder().auto_reclaim_threshold(None).build(0i32);
 
     for i in 1..=10 {
         cell.store(i);
@@ -393,7 +399,7 @@ fn test_update_triggers_version_increment() {
 #[test]
 fn test_get_consistency_with_store() {
     let mut cell = SwmrCell::new(0i32);
-    
+
     for i in 0..100 {
         cell.store(i);
         assert_eq!(*cell.get(), i);

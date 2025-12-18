@@ -36,13 +36,29 @@
 //! // 6. Manually collect garbage (optional, happens automatically too)
 //! cell.collect();
 //! ```
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+#[cfg(all(not(feature = "std"), test))]
+extern crate std;
+
 mod sync;
 
 #[cfg(test)]
 mod tests;
 
 use crate::sync::*;
+
+#[cfg(feature = "std")]
 use std::{collections::VecDeque, fmt, marker::PhantomData, ops::Deref, vec::Vec};
+
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
+
+#[cfg(not(feature = "std"))]
+use core::{fmt, marker::PhantomData, ops::Deref};
 
 /// Default threshold for automatic garbage reclamation (count of retired nodes).
 /// 自动垃圾回收的默认阈值（已退休节点的数量）。
@@ -620,7 +636,7 @@ impl<T: 'static> LocalReader<T> {
             // Retry with a fresh version.
             // 版本在我们读取和存储之间被回收了。
             // 用新版本重试。
-            std::hint::spin_loop();
+            core::hint::spin_loop();
         }
 
         self.pin_count.set(1);
