@@ -32,7 +32,7 @@ mod memory {
 
 #[cfg(feature = "loom")]
 mod memory {
-    pub use loom::sync::{Arc, Weak};
+    pub use loom::sync::Arc;
     pub use std::boxed::Box;
     pub use std::collections::VecDeque;
     pub use std::vec::Vec;
@@ -42,7 +42,24 @@ pub use memory::*;
 
 // Lock (Mutex) Abstraction
 #[cfg(feature = "loom")]
-pub use loom::sync::Mutex;
+mod loom_mutex {
+    pub struct Mutex<T>(loom::sync::Mutex<T>);
+
+    impl<T> Mutex<T> {
+        #[inline]
+        pub fn new(t: T) -> Self {
+            Self(loom::sync::Mutex::new(t))
+        }
+
+        #[inline]
+        pub fn lock(&self) -> loom::sync::MutexGuard<'_, T> {
+            self.0.lock().unwrap()
+        }
+    }
+}
+
+#[cfg(feature = "loom")]
+pub use loom_mutex::Mutex;
 
 #[cfg(not(feature = "loom"))]
 mod locks {
