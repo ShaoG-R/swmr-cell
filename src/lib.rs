@@ -50,6 +50,7 @@ mod shim;
 mod tests;
 use crate::shim::{Arc, AtomicPtr, AtomicUsize, Box, Cell, Mutex, Ordering, Vec, VecDeque};
 use core::{fmt, marker::PhantomData, ops::Deref};
+use swmr_barrier::{heavy_barrier, light_barrier};
 
 /// Default threshold for automatic garbage reclamation (count of retired nodes).
 /// 自动垃圾回收的默认阈值（已退休节点的数量）。
@@ -263,6 +264,10 @@ impl<T: 'static> SwmrCell<T> {
         let safety_limit = current_version.saturating_sub(2);
 
         let mut min_active = current_version;
+
+        // Force memory visibility of any preceding stores and serialize reader streams.
+        // This ensures we see any active readers that have completed their light_barrier.
+        heavy_barrier();
 
         let mut shared_readers = self.shared.readers.lock();
 
@@ -627,6 +632,9 @@ impl<T: 'static> LocalReader<T> {
             self.slot
                 .active_version
                 .store(current_version, Ordering::Release);
+
+            // Light barrier coupled with Writer's Heavy barrier prevents Store-Load reordering.
+            light_barrier();
 
             // Check if our version is still valid (not yet reclaimed).
             // 检查我们的版本是否仍然有效（尚未被回收）。

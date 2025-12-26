@@ -439,7 +439,9 @@ fn loom_store_collect_read_race() {
 #[test]
 fn loom_builder_custom_threshold() {
     loom::model(|| {
-        let mut cell = SwmrCell::builder().auto_reclaim_threshold(Some(2)).build(1i32);
+        let mut cell = SwmrCell::builder()
+            .auto_reclaim_threshold(Some(2))
+            .build(1i32);
         let local = cell.local();
 
         // Store should not trigger auto-collection at threshold 2 (if start is 0 garbage)
@@ -458,9 +460,7 @@ fn loom_builder_custom_threshold() {
 #[test]
 fn loom_builder_no_auto_reclaim() {
     loom::model(|| {
-        let mut cell = SwmrCell::builder()
-            .auto_reclaim_threshold(None)
-            .build(1i32);
+        let mut cell = SwmrCell::builder().auto_reclaim_threshold(None).build(1i32);
         let local = cell.local();
 
         // Multiple stores without auto-collection
@@ -569,7 +569,7 @@ fn loom_multiple_guards_same_reader() {
             // Create multiple guards simultaneously
             let guard1 = local.pin();
             let guard2 = local.pin();
-            
+
             assert_eq!(*guard1, 77);
             assert_eq!(*guard2, 77);
 
@@ -640,6 +640,39 @@ fn loom_reader_holds_guard_during_updates() {
         cell.store(2i32);
         cell.store(3i32);
 
+        t.join().unwrap();
+    });
+}
+
+/// Test: Verify UAF vulnerability due to Store-Load reordering
+#[test]
+fn loom_use_after_free() {
+    struct Data {
+        dropped: bool,
+    }
+    fn new_data() -> Data {
+        Data { dropped: false }
+    }
+    impl Drop for Data {
+        fn drop(&mut self) {
+            self.dropped = true;
+        }
+    }
+
+    loom::model(|| {
+        let mut cell = SwmrCell::new(new_data());
+
+        let r = cell.local();
+        let t = thread::spawn(move || {
+            let guard = r.pin();
+            assert!(!guard.dropped);
+        });
+
+        const WRITE_NUM: usize = 4;
+        for _ in 0..WRITE_NUM {
+            cell.store(new_data());
+        }
+        cell.collect();
         t.join().unwrap();
     });
 }
