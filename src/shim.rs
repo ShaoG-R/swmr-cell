@@ -117,3 +117,31 @@ pub use locks::*;
 // 确保在 no_std 且没有 spin 的情况下报错
 #[cfg(all(not(feature = "std"), not(feature = "spin"), not(feature = "loom")))]
 compile_error!("To use swmr-cell in no_std, you must enable the 'spin' feature or 'loom' feature.");
+
+#[cfg(feature = "read-preferred")]
+use swmr_barrier::{heavy_barrier as impl_heavy, light_barrier as impl_light};
+
+#[cfg(not(feature = "read-preferred"))]
+#[inline(always)]
+pub fn fence(ordering: Ordering) {
+    #[cfg(feature = "loom")]
+    loom::sync::atomic::fence(ordering);
+    #[cfg(not(feature = "loom"))]
+    core::sync::atomic::fence(ordering);
+}
+
+#[inline(always)]
+pub fn heavy_barrier() {
+    #[cfg(not(feature = "read-preferred"))]
+    fence(Ordering::SeqCst);
+    #[cfg(feature = "read-preferred")]
+    impl_heavy();
+}
+
+#[inline(always)]
+pub fn light_barrier() {
+    #[cfg(not(feature = "read-preferred"))]
+    fence(Ordering::SeqCst);
+    #[cfg(feature = "read-preferred")]
+    impl_light();
+}

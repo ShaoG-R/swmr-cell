@@ -48,9 +48,11 @@ mod shim;
 
 #[cfg(test)]
 mod tests;
-use crate::shim::{Arc, AtomicPtr, AtomicUsize, Box, Cell, Mutex, Ordering, Vec, VecDeque};
+use crate::shim::{
+    Arc, AtomicPtr, AtomicUsize, Box, Cell, Mutex, Ordering, Vec, VecDeque, heavy_barrier,
+    light_barrier,
+};
 use core::{fmt, marker::PhantomData, ops::Deref};
-use swmr_barrier::{heavy_barrier, light_barrier};
 
 /// Default threshold for automatic garbage reclamation (count of retired nodes).
 /// 自动垃圾回收的默认阈值（已退休节点的数量）。

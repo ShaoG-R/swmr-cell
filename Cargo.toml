@@ -1,6 +1,6 @@
 [package]
 name = "swmr-cell"
-version = "0.1.10"
+version = "0.2.0"
 edition = "2024"
 authors = ["ShaoG <shaog.rs@gmail.com>"]
 description = "A thread-safe single-writer multi-reader cell with wait-free reads and version-based garbage collection"
@@ -14,7 +14,7 @@ categories = ["concurrency", "data-structures", "memory-management"]
 [dependencies]
 spin = { version = "0.10", optional = true }
 loom = { version = "0.7", optional = true }
-swmr-barrier = { version = "0.1.4" }
+swmr-barrier = { version = "0.1.4", optional = true }
 
 [dev-dependencies]
 crossbeam-epoch = "0.9"
@@ -23,4 +23,5 @@ criterion = { version = "0.7", features = ["html_reports"] }
 [features]
 default = ["std"]
 std = []
-loom = ["dep:loom", "swmr-barrier/loom"]
+loom = ["dep:loom", "swmr-barrier?/loom"]
+read-preferred = ["dep:swmr-barrier"]

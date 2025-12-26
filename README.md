@@ -27,8 +27,13 @@ Add `swmr-cell` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-swmr-cell = "0.1"
+swmr-cell = "0.2"
 ```
+
+### Features
+
+- **default**: Enables `std` (standard fences for synchronization). Optimized for **write-heavy** or balanced workloads (Zero-overhead on writers, slight overhead on readers).
+- **read-preferred**: Enables specialized heavy/light memory barriers (via `swmr-barrier`). Optimized for **read-heavy** workloads (makes readers wait-free in instruction cycles, shifts synchronization cost to the writer).
 
 ### no_std Support
 
@@ -36,7 +41,7 @@ To use `swmr-cell` in a `no_std` environment, disable the default features and e
 
 ```toml
 [dependencies]
-swmr-cell = { version = "0.1", default-features = false, features = ["spin"] }
+swmr-cell = { version = "0.2", default-features = false, features = ["spin"] }
 ```
 
 ### Basic Example

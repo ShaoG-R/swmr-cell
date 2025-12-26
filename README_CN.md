@@ -27,8 +27,13 @@
 
 ```toml
 [dependencies]
-swmr-cell = "0.1"
+swmr-cell = "0.2"
 ```
+
+### 特性标志 (Features)
+
+- **default**: 启用 `std`（使用标准内存屏障/Fence进行同步）。默认优先优化 **写入性能**（Writer 零开销，Reader 极小开销）。
+- **read-preferred**: 启用专用的轻重内存屏障（通过 `swmr-barrier`）。优先优化 **读取性能**（Reader 指令级无等待，将同步开销转移给 Writer）。
 
 ### no_std 支持
 
@@ -36,7 +41,7 @@ swmr-cell = "0.1"
 
 ```toml
 [dependencies]
-swmr-cell = { version = "0.1", default-features = false, features = ["spin"] }
+swmr-cell = { version = "0.2", default-features = false, features = ["spin"] }
 ```
 
 ### 基本示例
