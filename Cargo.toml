@@ -16,9 +16,6 @@ spin = { version = "0.10", optional = true }
 loom = { version = "0.7", optional = true }
 swmr-barrier = "0.1.4"
 
-[dev-dependencies]
-crossbeam-epoch = "0.9"
-criterion = { version = "0.7", features = ["html_reports"] }
 
 [features]
 default = ["std"]
