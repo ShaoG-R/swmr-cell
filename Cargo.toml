@@ -2,11 +2,11 @@
 name = "swmr-cell"
 version = "0.3.0"
 edition = "2024"
-authors = ["ShaoG <shaog.rs@gmail.com>"]
+authors = ["Shao G. <shaogme@gmail.com>"]
 description = "A thread-safe single-writer multi-reader cell with wait-free reads and version-based garbage collection"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/ShaoG-R/swmr-cell"
-homepage = "https://github.com/ShaoG-R/swmr-cell"
+repository = "https://github.com/shaogme/swmr-cell"
+homepage = "https://github.com/shaogme/swmr-cell"
 documentation = "https://docs.rs/swmr-cell"
 keywords = ["swmr", "wait-free", "rcu", "concurrency", "lock-free"]
 categories = ["concurrency", "data-structures", "memory-management"]

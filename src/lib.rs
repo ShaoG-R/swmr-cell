@@ -94,7 +94,7 @@ impl<T: 'static> SwmrCell<T, false> {
     pub fn builder() -> SwmrCellBuilder<T, false> {
         SwmrCellBuilder {
             auto_reclaim_threshold: Some(AUTO_RECLAIM_THRESHOLD),
-            marker: PhantomData::default(),
+            marker: PhantomData,
         }
     }
 }
@@ -154,10 +154,10 @@ impl<T: 'static, const RP: bool> SwmrCell<T, RP> {
         }
 
         // Auto-reclaim
-        if let Some(threshold) = self.auto_reclaim_threshold {
-            if self.garbage.len() > threshold {
-                self.collect();
-            }
+        if let Some(threshold) = self.auto_reclaim_threshold
+            && self.garbage.len() > threshold
+        {
+            self.collect();
         }
     }
 
@@ -533,7 +533,7 @@ impl<T: 'static, const RP: bool> Drop for SharedState<T, RP> {
 /// `LocalReader` 用于：
 /// - 通过 `pin()` 将线程钉住到当前版本。
 /// - 获取保护对值访问的 `PinGuard`，可以解引用来读取值。
-/// **线程安全性**：`LocalReader` 不是 `Sync` 的，必须仅由一个线程使用。
+///   **线程安全性**：`LocalReader` 不是 `Sync` 的，必须仅由一个线程使用。
 pub struct LocalReader<T: 'static, const RP: bool = false> {
     slot: Arc<ReaderSlot>,
     shared: Arc<SharedState<T, RP>>,
