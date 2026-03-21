@@ -92,10 +92,7 @@ impl<T: 'static> SwmrCell<T, false> {
     /// 返回用于配置 SWMR 单元的构建器。
     #[inline]
     pub fn builder() -> SwmrCellBuilder<T, false> {
-        SwmrCellBuilder {
-            auto_reclaim_threshold: Some(AUTO_RECLAIM_THRESHOLD),
-            marker: PhantomData,
-        }
+        SwmrCellBuilder::default()
     }
 }
 
@@ -382,6 +379,15 @@ impl<T: 'static, const RP: bool> SwmrCellBuilder<T, RP> {
             shared,
             garbage: GarbageSet::new(),
             auto_reclaim_threshold: self.auto_reclaim_threshold,
+        }
+    }
+}
+
+impl<T: 'static, const RP: bool> Default for SwmrCellBuilder<T, RP> {
+    fn default() -> Self {
+        SwmrCellBuilder {
+            auto_reclaim_threshold: Some(AUTO_RECLAIM_THRESHOLD),
+            marker: PhantomData,
         }
     }
 }
@@ -761,7 +767,7 @@ pub struct PinGuard<'a, T: 'static, const RP: bool = false> {
     version: usize,
 }
 
-impl<T: 'static> PinGuard<'_, T> {
+impl<T: 'static, const RP: bool> PinGuard<'_, T, RP> {
     /// Get the version that this guard is pinned to.
     ///
     /// 获取此守卫被 pin 到的版本。
@@ -771,7 +777,7 @@ impl<T: 'static> PinGuard<'_, T> {
     }
 }
 
-impl<'a, T> Deref for PinGuard<'a, T> {
+impl<'a, T, const RP: bool> Deref for PinGuard<'a, T, RP> {
     type Target = T;
 
     /// Dereference to access the pinned value.
@@ -795,7 +801,7 @@ impl<'a, T> Deref for PinGuard<'a, T> {
     }
 }
 
-impl<'a, T> Clone for PinGuard<'a, T> {
+impl<'a, T, const RP: bool> Clone for PinGuard<'a, T, RP> {
     /// Clone this guard to create a nested pin.
     ///
     /// Cloning increments the pin count, and the thread remains pinned until all cloned guards
@@ -847,7 +853,7 @@ impl<'a, T, const RP: bool> Drop for PinGuard<'a, T, RP> {
     }
 }
 
-impl<T: 'static> AsRef<T> for PinGuard<'_, T> {
+impl<T: 'static, const RP: bool> AsRef<T> for PinGuard<'_, T, RP> {
     #[inline]
     fn as_ref(&self) -> &T {
         self.deref()
@@ -859,53 +865,57 @@ impl<T: 'static> AsRef<T> for PinGuard<'_, T> {
 // 标准 trait 实现
 // ============================================================================
 
-impl<T: Default + 'static> Default for SwmrCell<T> {
+impl<T: Default + 'static, const RP: bool> Default for SwmrCell<T, RP> {
     /// Create a new SWMR cell with the default value.
     ///
     /// 使用默认值创建一个新的 SWMR 单元。
     #[inline]
     fn default() -> Self {
-        Self::new(T::default())
+        SwmrCell::from(T::default())
     }
 }
 
-impl<T: 'static> From<T> for SwmrCell<T> {
+impl<T: 'static, const RP: bool> From<T> for SwmrCell<T, RP> {
     /// Create a new SWMR cell from a value.
     ///
     /// 从一个值创建一个新的 SWMR 单元。
     #[inline]
     fn from(value: T) -> Self {
-        Self::new(value)
+        SwmrCellBuilder::default().build(value)
     }
 }
 
-impl<T: fmt::Debug + 'static> fmt::Debug for SwmrCell<T> {
+impl<T: fmt::Debug + 'static, const RP: bool> fmt::Debug for SwmrCell<T, RP> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SwmrCell")
             .field("value", self.get())
             .field("version", &self.version())
             .field("garbage_count", &self.garbage_count())
+            .field("reclaim_threshold", &self.auto_reclaim_threshold)
+            .field("is_read-preferred", &RP)
             .finish()
     }
 }
 
-impl<T: 'static> fmt::Debug for LocalReader<T> {
+impl<T: 'static, const RP: bool> fmt::Debug for LocalReader<T, RP> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LocalReader")
             .field("is_pinned", &self.is_pinned())
             .field("version", &self.version())
+            .field("is_read-preferred", &RP)
             .finish()
     }
 }
 
-impl<T: fmt::Debug + 'static> fmt::Debug for PinGuard<'_, T> {
+impl<T: fmt::Debug + 'static, const RP: bool> fmt::Debug for PinGuard<'_, T, RP> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PinGuard")
             .field("value", &self.deref())
             .field("version", &self.version)
+            .field("is_read-preferred", &RP)
             .finish()
     }
 }
