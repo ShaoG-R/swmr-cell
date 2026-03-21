@@ -53,7 +53,7 @@ fn test_zero_sized_type() {
     struct ZeroSized;
 
     let mut cell = SwmrCell::new(ZeroSized);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     {
         let _guard = local.pin();
@@ -72,7 +72,7 @@ fn test_large_data_structure() {
 
     let large = LargeData { data: [42; 1000] };
     let cell = SwmrCell::new(large);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     {
         let guard = local.pin();
@@ -100,7 +100,7 @@ fn test_nested_structures() {
     };
 
     let cell = SwmrCell::new(outer);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     {
         let guard = local.pin();
@@ -113,7 +113,7 @@ fn test_nested_structures() {
 #[test]
 fn test_vector_type() {
     let cell = SwmrCell::new(vec![1, 2, 3, 4, 5]);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     {
         let guard = local.pin();
@@ -126,7 +126,7 @@ fn test_vector_type() {
 #[test]
 fn test_multiple_store_operations() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     for i in 1..=10 {
         cell.store(i);
@@ -138,7 +138,7 @@ fn test_multiple_store_operations() {
 #[test]
 fn test_rapid_pin_unpin() {
     let cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     for _ in 0..1000 {
         let _guard = local.pin();
@@ -151,7 +151,7 @@ fn test_rapid_reader_creation_destruction() {
     let cell = SwmrCell::new(0i32);
 
     for _ in 0..100 {
-        let local = cell.local();
+        let local = cell.local_reader();
         let _guard = local.pin();
     }
 }
@@ -163,7 +163,7 @@ fn test_readers_in_different_threads() {
     let mut handles = vec![];
 
     for _ in 0..3 {
-        let local = cell.local();
+        let local = cell.local_reader();
         handles.push(thread::spawn(move || {
             let guard = local.pin();
             assert!(*guard >= 0);
@@ -195,7 +195,7 @@ fn test_writer_cleanup_on_drop() {
 fn test_reader_handle_cleanup_on_drop() {
     let cell = SwmrCell::new(0i32);
     {
-        let local = cell.local();
+        let local = cell.local_reader();
         let _guard = local.pin();
     }
     // guard dropped
@@ -206,7 +206,7 @@ fn test_reader_handle_cleanup_on_drop() {
 #[test]
 fn test_alternating_epoch_advancement() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     for cycle in 0..10 {
         for i in 0..100 {
@@ -222,9 +222,9 @@ fn test_alternating_epoch_advancement() {
 fn test_many_readers_epoch_management() {
     let mut cell = SwmrCell::new(0i32);
 
-    let reader1 = cell.local();
-    let reader2 = cell.local();
-    let reader3 = cell.local();
+    let reader1 = cell.local_reader();
+    let reader2 = cell.local_reader();
+    let reader3 = cell.local_reader();
 
     cell.collect();
 
@@ -243,7 +243,7 @@ fn test_many_readers_epoch_management() {
 #[test]
 fn test_garbage_protection_across_epochs() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     {
         let _guard = local.pin();
@@ -262,8 +262,8 @@ fn test_garbage_protection_across_epochs() {
 fn test_dynamic_reader_registration() {
     let mut cell = SwmrCell::new(0i32);
 
-    let reader1 = cell.local();
-    let reader2 = cell.local();
+    let reader1 = cell.local_reader();
+    let reader2 = cell.local_reader();
 
     cell.collect();
 
@@ -272,7 +272,7 @@ fn test_dynamic_reader_registration() {
 
     cell.collect();
 
-    let reader3 = cell.local();
+    let reader3 = cell.local_reader();
     let _g3 = reader3.pin();
 }
 
@@ -280,7 +280,7 @@ fn test_dynamic_reader_registration() {
 #[test]
 fn test_stress_high_frequency_operations() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     for i in 0..1000 {
         cell.store(i % 100);
@@ -342,7 +342,7 @@ fn test_garbage_count_after_collect() {
 #[test]
 fn test_is_pinned_with_nested_pins() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     assert!(!local.is_pinned());
 
@@ -363,7 +363,7 @@ fn test_is_pinned_with_nested_pins() {
 #[test]
 fn test_pin_guard_version_consistency() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let guard1 = local.pin();
     let v1 = guard1.version();

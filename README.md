@@ -27,13 +27,20 @@ Add `swmr-cell` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-swmr-cell = "0.2"
+swmr-cell = "0.3"
 ```
 
-### Features
+### Read-Preferred Mode
 
-- **default**: Enables `std` (standard fences for synchronization). Optimized for **write-heavy** or balanced workloads (Zero-overhead on writers, slight overhead on readers).
-- **read-preferred**: Enables specialized heavy/light memory barriers (via `swmr-barrier`). Optimized for **read-heavy** workloads (makes readers wait-free in instruction cycles, shifts synchronization cost to the writer).
+By default, `swmr-cell` is optimized for **write-heavy** or balanced workloads. You can enable **read-preferred** mode via the builder, which uses specialized heavy/light memory barriers (via `swmr-barrier`). This makes readers wait-free in instruction cycles by shifting synchronization cost to the writer.
+
+```rust
+use swmr_cell::SwmrCell;
+
+let mut cell = SwmrCell::builder()
+    .read_preferred() // Optimize for read performance
+    .build(42);
+```
 
 ### no_std Support
 
@@ -41,7 +48,7 @@ To use `swmr-cell` in a `no_std` environment, disable the default features and e
 
 ```toml
 [dependencies]
-swmr-cell = { version = "0.2", default-features = false, features = ["spin"] }
+swmr-cell = { version = "0.3", default-features = false, features = ["spin"] }
 ```
 
 ### Basic Example
@@ -53,7 +60,7 @@ use swmr_cell::SwmrCell;
 let mut cell = SwmrCell::new(42i32);
 
 // 2. Create a local reader for this thread (each thread needs its own local reader)
-let local = cell.local();
+let local = cell.local_reader();
 
 // 3. Pin and read the value
 // The guard provides a snapshot of the value at the moment of pinning
@@ -74,23 +81,16 @@ assert_eq!(*guard, 100);
 
 ```rust
 use swmr_cell::SwmrCell;
-use std::sync::Arc;
 use std::thread;
 
 fn main() {
-    // Wrap the cell in a smart pointer if you need to pass it around, 
-    // though usually the writer owns the cell and readers own their LocalReader.
-    // Here we keep the cell in the main thread (writer).
     let mut cell = SwmrCell::new(0);
     
-    // Create a LocalReader for a background thread
-    // LocalReader is !Sync, so we create it here and send it, 
-    // or create it inside the thread if we had shared access to the cell.
     let mut reader_handles = vec![];
     
     for i in 0..3 {
-        // SwmrCell::local() creates a reader connected to the cell
-        let local = cell.local();
+        // Create a LocalReader for each thread
+        let local = cell.local_reader();
         
         let handle = thread::spawn(move || {
             loop {
@@ -117,9 +117,9 @@ fn main() {
 }
 ```
 
-### Using `SwmrReader` for Shared Reader Creation
+### Using `SwmrReaderFactory` for Shared Reader Creation
 
-If you need to distribute the ability to create readers to multiple threads (e.g., in a thread pool where threads are dynamic), you can use `SwmrReader`. Unlike `LocalReader`, `SwmrReader` is `Sync` and `Clone`.
+If you need to distribute the ability to create readers to multiple threads (e.g., in a thread pool where threads are dynamic), you can use `SwmrReaderFactory`. Unlike `LocalReader`, `SwmrReaderFactory` is `Sync` and `Clone`.
 
 ```rust
 use swmr_cell::SwmrCell;
@@ -127,8 +127,8 @@ use std::thread;
 
 let mut cell = SwmrCell::new(0);
 
-// Create a SwmrReader factory that can be shared
-let reader_factory = cell.reader();
+// Create a SwmrReaderFactory that can be shared
+let reader_factory = cell.reader_factory();
 
 for i in 0..3 {
     // Clone the factory for each thread
@@ -136,31 +136,47 @@ for i in 0..3 {
     
     thread::spawn(move || {
         // Create a LocalReader on the thread using the factory
-        let local = factory.local();
+        let local = factory.local_reader();
         
         // ... use local reader ...
     });
 }
 ```
 
-You can also obtain a `SwmrReader` from an existing `LocalReader` if you need to pass the capability to another thread:
+You can also obtain a `SwmrReaderFactory` from an existing `LocalReader` if you need to pass the capability to another thread:
 
 ```rust
-// 1. Share: Create a SwmrReader from a LocalReader
-let local_reader = cell.local();
-let swmr_reader = local_reader.share(); // Returns SwmrReader
+// 1. Share: Create a SwmrReaderFactory from a LocalReader
+let local_reader = cell.local_reader();
+let factory = local_reader.reader_factory(); 
 thread::spawn(move || {
-    let local = swmr_reader.local();
+    let local = factory.local_reader();
     // ...
 });
 
-// 2. Convert: Consume LocalReader to get SwmrReader
-let local_reader = cell.local();
-let swmr_reader = local_reader.into_swmr(); // Consumes local_reader
+// 2. Convert: Consume LocalReader to get SwmrReaderFactory
+let local_reader = cell.local_reader();
+let factory = local_reader.into_swmr(); // Consumes local_reader
 thread::spawn(move || {
-    let local = swmr_reader.local();
+    let local = factory.local_reader();
     // ...
 });
+```
+
+### Writer Utilities
+
+`SwmrCell` provides several utilities for the writer:
+
+```rust
+let mut cell = SwmrCell::new(10);
+
+// Update value using a closure
+cell.update(|v| v + 5);
+assert_eq!(*cell.get(), 15);
+
+// Access the previous (retired) value
+// Useful for rollback or comparison
+assert_eq!(cell.previous(), Some(&10));
 ```
 
 ## Configuration

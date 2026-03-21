@@ -14,7 +14,7 @@ fn test_single_writer_multiple_readers_concurrent_reads() {
 
     // Create 5 local threads
     for _ in 0..5 {
-        let local = cell.local();
+        let local = cell.local_reader();
 
         let handle = thread::spawn(move || {
             // Each local reads 10 times
@@ -37,7 +37,7 @@ fn test_single_writer_multiple_readers_concurrent_reads() {
 fn test_writer_updates_readers_observe() {
     let mut cell = SwmrCell::new(0i32);
 
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let reader_thread = thread::spawn(move || {
         // Read initial value
@@ -67,7 +67,7 @@ fn test_writer_updates_readers_observe() {
 #[test]
 fn test_sequential_writer_operations() {
     let mut cell = SwmrCell::new(1i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     cell.store(2);
     assert_eq!(*local.pin(), 2);
@@ -83,8 +83,8 @@ fn test_sequential_writer_operations() {
 #[test]
 fn test_readers_in_different_epochs() {
     let mut cell = SwmrCell::new(0i32);
-    let reader1 = cell.local();
-    let reader2 = cell.local();
+    let reader1 = cell.local_reader();
+    let reader2 = cell.local_reader();
 
     // local 1 pins version 0
     let guard1 = reader1.pin();
@@ -121,7 +121,7 @@ fn test_garbage_collection_trigger() {
 #[test]
 fn test_active_reader_protects_garbage() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     // local pins
     let _guard = local.pin();
@@ -141,7 +141,7 @@ fn test_garbage_reclaimed_after_reader_drop() {
     let mut cell = SwmrCell::new(0i32);
 
     {
-        let local = cell.local();
+        let local = cell.local_reader();
         let _guard = local.pin();
         for i in 0..70 {
             cell.store(i);
@@ -157,8 +157,8 @@ fn test_garbage_reclaimed_after_reader_drop() {
 #[test]
 fn test_min_epoch_calculation_multiple_readers() {
     let mut cell = SwmrCell::new(0i32);
-    let reader1 = cell.local();
-    let reader2 = cell.local();
+    let reader1 = cell.local_reader();
+    let reader2 = cell.local_reader();
 
     // local 1 at v0
     let _guard1 = reader1.pin();
@@ -181,7 +181,7 @@ fn test_high_concurrency_reads() {
     let mut handles = vec![];
 
     for _ in 0..20 {
-        let local = cell.local();
+        let local = cell.local_reader();
         handles.push(thread::spawn(move || {
             for _ in 0..100 {
                 let guard = local.pin();
@@ -199,7 +199,7 @@ fn test_high_concurrency_reads() {
 #[test]
 fn test_reader_thread_exit_cleanup() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let t = thread::spawn(move || {
         let _guard = local.pin();
@@ -215,7 +215,7 @@ fn test_reader_thread_exit_cleanup() {
 #[test]
 fn test_interleaved_read_write_operations() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     for i in 0..10 {
         cell.store(i);
@@ -227,7 +227,7 @@ fn test_interleaved_read_write_operations() {
 #[test]
 fn test_reader_holds_guard_during_updates() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let t = thread::spawn(move || {
         let guard = local.pin();
@@ -251,7 +251,7 @@ fn test_reader_holds_guard_during_updates() {
 #[test]
 fn test_version_consistency_across_threads() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let t = thread::spawn(move || {
         for _ in 0..10 {
@@ -276,7 +276,7 @@ fn test_version_consistency_across_threads() {
 #[test]
 fn test_is_pinned_correctness_in_threads() {
     let cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let t = thread::spawn(move || {
         assert!(!local.is_pinned());
@@ -307,7 +307,7 @@ fn test_get_and_store_interleaving() {
 #[test]
 fn test_update_with_concurrent_readers() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let t = thread::spawn(move || {
         for _ in 0..50 {
@@ -328,7 +328,7 @@ fn test_update_with_concurrent_readers() {
 #[test]
 fn test_local_reader_version_tracks_global() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let t = thread::spawn(move || {
         let mut last_version = 0;

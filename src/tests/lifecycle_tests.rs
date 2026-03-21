@@ -12,7 +12,7 @@ use std::vec;
 #[test]
 fn test_guard_lifetime_constraint() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
     let guard = local.pin();
     assert_eq!(*guard, 42);
     // value lifetime bound to guard
@@ -22,7 +22,7 @@ fn test_guard_lifetime_constraint() {
 #[test]
 fn test_multiple_guards_simultaneously_active() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let guard1 = local.pin();
     let guard2 = local.pin();
@@ -35,7 +35,7 @@ fn test_multiple_guards_simultaneously_active() {
 #[test]
 fn test_guard_nested_scopes() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     {
         let guard1 = local.pin();
@@ -58,7 +58,7 @@ fn test_reader_isolation_across_threads() {
     let mut handles = vec![];
 
     for _ in 0..3 {
-        let local = cell.local();
+        let local = cell.local_reader();
         handles.push(thread::spawn(move || {
             let guard = local.pin();
             assert!(*guard >= 0);
@@ -87,7 +87,7 @@ fn test_writer_uniqueness() {
 #[test]
 fn test_garbage_collection_memory_safety() {
     let mut cell = SwmrCell::new(vec![1, 2, 3]);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     cell.store(vec![4, 5, 6]);
     cell.store(vec![7, 8, 9]);
@@ -114,9 +114,9 @@ fn test_multiple_swmr_independence() {
     let c2 = SwmrCell::new(20i32);
     let c3 = SwmrCell::new(30i32);
 
-    let r1 = c1.local();
-    let r2 = c2.local();
-    let r3 = c3.local();
+    let r1 = c1.local_reader();
+    let r2 = c2.local_reader();
+    let r3 = c3.local_reader();
 
     let g1 = r1.pin();
     let g2 = r2.pin();
@@ -131,9 +131,9 @@ fn test_multiple_swmr_independence() {
 #[test]
 fn test_reader_creation_safety() {
     let cell = SwmrCell::new(0i32);
-    let r1 = cell.local();
-    let r2 = cell.local();
-    let r3 = cell.local();
+    let r1 = cell.local_reader();
+    let r2 = cell.local_reader();
+    let r3 = cell.local_reader();
 
     let _g1 = r1.pin();
     let _g2 = r2.pin();
@@ -144,7 +144,7 @@ fn test_reader_creation_safety() {
 #[test]
 fn test_epoch_advancement_correctness() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     {
         let guard = local.pin();
@@ -167,7 +167,7 @@ fn test_concurrent_read_consistency() {
     let mut handles = vec![];
 
     for _ in 0..10 {
-        let local = cell.local();
+        let local = cell.local_reader();
         let c = check.clone();
         handles.push(thread::spawn(move || {
             for _ in 0..100 {
@@ -190,7 +190,7 @@ fn test_concurrent_read_consistency() {
 #[test]
 fn test_reader_exit_cleanup() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let t = thread::spawn(move || {
         let _guard = local.pin();
@@ -226,7 +226,7 @@ fn test_complex_type_lifetime_management() {
     };
 
     let cell = SwmrCell::new(data);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let guard = local.pin();
     assert_eq!(guard.id, 1);
@@ -238,7 +238,7 @@ fn test_complex_type_lifetime_management() {
 #[test]
 fn test_data_visibility_across_epochs() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let g1 = local.pin();
 
@@ -261,7 +261,7 @@ fn test_data_visibility_across_epochs() {
 #[test]
 fn test_rapid_reader_switching() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     for _ in 0..100 {
         let guard = local.pin();
@@ -277,7 +277,7 @@ fn test_rapid_reader_switching() {
 #[test]
 fn test_writer_garbage_management() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     {
         let _guard = local.pin();
@@ -295,9 +295,9 @@ fn test_writer_garbage_management() {
 #[test]
 fn test_multiple_readers_garbage_protection() {
     let mut cell = SwmrCell::new(0i32);
-    let r1 = cell.local();
-    let r2 = cell.local();
-    let r3 = cell.local();
+    let r1 = cell.local_reader();
+    let r2 = cell.local_reader();
+    let r3 = cell.local_reader();
 
     let _g1 = r1.pin();
     let _g2 = r2.pin();
@@ -317,7 +317,7 @@ fn test_complete_lifecycle_scenario() {
     let mut cell = SwmrCell::new(String::from("initial"));
     let mut readers = vec![];
     for _ in 0..5 {
-        readers.push(cell.local());
+        readers.push(cell.local_reader());
     }
 
     for round in 0..3 {
@@ -369,7 +369,7 @@ fn test_update_preserves_previous() {
 #[test]
 fn test_version_consistency_lifecycle() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     for i in 0..10 {
         assert_eq!(cell.version(), i);
@@ -387,7 +387,7 @@ fn test_version_consistency_lifecycle() {
 #[test]
 fn test_is_pinned_lifecycle_with_clone() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     assert!(!local.is_pinned());
 
@@ -408,7 +408,7 @@ fn test_is_pinned_lifecycle_with_clone() {
 #[test]
 fn test_pin_guard_version_preserved() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let guard = local.pin();
     let initial_version = guard.version();
@@ -429,7 +429,7 @@ fn test_pin_guard_version_preserved() {
 #[test]
 fn test_default_trait_lifecycle() {
     let mut cell: SwmrCell<Vec<i32>> = SwmrCell::default();
-    let local = cell.local();
+    let local = cell.local_reader();
 
     assert!(cell.get().is_empty());
     assert_eq!(cell.version(), 0);

@@ -13,7 +13,7 @@ use std::vec;
 #[test]
 fn test_create_swmr_cell_and_basic_usage() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     // Verify local can pin
     let guard = local.pin();
@@ -24,7 +24,7 @@ fn test_create_swmr_cell_and_basic_usage() {
 #[test]
 fn test_reader_pin_drop_cycle() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     // First pin
     {
@@ -44,7 +44,7 @@ fn test_reader_pin_drop_cycle() {
 #[test]
 fn test_writer_store() {
     let mut cell = SwmrCell::new(10i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     // Initial value
     {
@@ -85,7 +85,7 @@ fn test_writer_collect() {
 #[test]
 fn test_nested_pins() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     // Verify we can pin multiple times (reentrant pinning)
     let guard1 = local.pin();
@@ -107,8 +107,8 @@ fn test_nested_pins() {
 fn test_multiple_locals() {
     let cell = SwmrCell::new(42i32);
 
-    let reader1 = cell.local();
-    let reader2 = cell.local();
+    let reader1 = cell.local_reader();
+    let reader2 = cell.local_reader();
 
     // Both readers should work
     let guard1 = reader1.pin();
@@ -122,7 +122,7 @@ fn test_multiple_locals() {
 #[test]
 fn test_swmr_with_string() {
     let cell = SwmrCell::new(String::from("hello"));
-    let local = cell.local();
+    let local = cell.local_reader();
 
     {
         let guard = local.pin();
@@ -140,7 +140,7 @@ fn test_swmr_with_struct() {
     }
 
     let cell = SwmrCell::new(Point { x: 10, y: 20 });
-    let local = cell.local();
+    let local = cell.local_reader();
 
     {
         let guard = local.pin();
@@ -153,7 +153,7 @@ fn test_swmr_with_struct() {
 #[test]
 fn test_swmr_drop() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
     drop(local);
     drop(cell);
     // Memory should be freed. We rely on Miri or ASAN to catch leaks.
@@ -166,9 +166,9 @@ fn test_multiple_swmr_instances() {
     let c2 = SwmrCell::new(20i32);
     let c3 = SwmrCell::new(30i32);
 
-    let r1 = c1.local();
-    let r2 = c2.local();
-    let r3 = c3.local();
+    let r1 = c1.local_reader();
+    let r2 = c2.local_reader();
+    let r3 = c3.local_reader();
 
     {
         let g1 = r1.pin();
@@ -190,7 +190,7 @@ fn test_thread_safety() {
 
     // Start 5 local threads
     for _ in 0..5 {
-        let local = cell.local();
+        let local = cell.local_reader();
 
         handles.push(thread::spawn(move || {
             let guard = local.pin();
@@ -326,7 +326,7 @@ fn test_garbage_count_tracks_retired_objects() {
 #[test]
 fn test_local_reader_is_pinned() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     assert!(!local.is_pinned());
 
@@ -341,7 +341,7 @@ fn test_local_reader_is_pinned() {
 #[test]
 fn test_local_reader_version() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     assert_eq!(local.version(), 0);
 
@@ -356,7 +356,7 @@ fn test_local_reader_version() {
 #[test]
 fn test_pin_guard_version() {
     let mut cell = SwmrCell::new(0i32);
-    let local = cell.local();
+    let local = cell.local_reader();
 
     let guard = local.pin();
     assert_eq!(guard.version(), 0);
@@ -371,7 +371,7 @@ fn test_pin_guard_version() {
 #[test]
 fn test_pin_guard_as_ref() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
     let guard = local.pin();
 
     let value: &i32 = guard.as_ref();
@@ -414,7 +414,7 @@ fn test_debug_trait_swmr_cell() {
 #[test]
 fn test_debug_trait_local_reader() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
     let debug_str = format!("{:?}", local);
     assert!(debug_str.contains("LocalReader"));
 }
@@ -423,7 +423,7 @@ fn test_debug_trait_local_reader() {
 #[test]
 fn test_debug_trait_pin_guard() {
     let cell = SwmrCell::new(42i32);
-    let local = cell.local();
+    let local = cell.local_reader();
     let guard = local.pin();
     let debug_str = format!("{:?}", guard);
     assert!(debug_str.contains("PinGuard"));

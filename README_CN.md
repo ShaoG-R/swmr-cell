@@ -27,21 +27,28 @@
 
 ```toml
 [dependencies]
-swmr-cell = "0.2"
+swmr-cell = "0.3"
 ```
 
-### 特性标志 (Features)
+### 读优先模式 (Read-Preferred Mode)
 
-- **default**: 启用 `std`（使用标准内存屏障/Fence进行同步）。默认优先优化 **写入性能**（Writer 零开销，Reader 极小开销）。
-- **read-preferred**: 启用专用的轻重内存屏障（通过 `swmr-barrier`）。优先优化 **读取性能**（Reader 指令级无等待，将同步开销转移给 Writer）。
+默认情况下，`swmr-cell` 针对 **写密集型** 或平衡工作负载进行了优化。你可以通过构建器启用 **读优先** 模式，它使用专用的轻/重内存屏障（通过 `swmr-barrier`）。这使得读取者在指令周期内实现无等待，将同步开销转移给写入者。
+
+```rust
+use swmr_cell::SwmrCell;
+
+let mut cell = SwmrCell::builder()
+    .read_preferred() // 开启读性能优化
+    .build(42);
+```
 
 ### no_std 支持
 
-要在 `no_std` 环境中使用 `swmr-cell`，请禁用默认特性并启用 `spin` 特性。注意：本库依赖 `alloc`，因此需要提供全局分配器。
+要在 `no_std` 环境中使用 `swmr-cell`，请禁用默认特性并启用 `spin` 特性. 注意：本库依赖 `alloc`，因此需要提供全局分配器。
 
 ```toml
 [dependencies]
-swmr-cell = { version = "0.2", default-features = false, features = ["spin"] }
+swmr-cell = { version = "0.3", default-features = false, features = ["spin"] }
 ```
 
 ### 基本示例
@@ -53,7 +60,7 @@ use swmr_cell::SwmrCell;
 let mut cell = SwmrCell::new(42i32);
 
 // 2. 为当前线程创建一个本地读取者（每个线程都需要自己的 local reader）
-let local = cell.local();
+let local = cell.local_reader();
 
 // 3. Pin 住并读取值
 // guard 提供了 pin 时刻的值的快照
@@ -74,23 +81,16 @@ assert_eq!(*guard, 100);
 
 ```rust
 use swmr_cell::SwmrCell;
-use std::sync::Arc;
 use std::thread;
 
 fn main() {
-    // 如果需要传递 cell，可以将其包装在智能指针中。
-    // 不过通常写入者持有 cell，读取者持有它们自己的 LocalReader。
-    // 这里我们将 cell 保留在主线程（写入者）中。
     let mut cell = SwmrCell::new(0);
     
-    // 为后台线程创建 LocalReader
-    // LocalReader 是 !Sync 的，所以我们在这里创建并发送它，
-    // 或者如果我们可以共享访问 cell，也可以在线程内部创建。
     let mut reader_handles = vec![];
     
     for i in 0..3 {
-        // SwmrCell::local() 创建一个连接到该 cell 的读取者
-        let local = cell.local();
+        // 为每个线程创建一个 LocalReader
+        let local = cell.local_reader();
         
         let handle = thread::spawn(move || {
             loop {
@@ -117,9 +117,9 @@ fn main() {
 }
 ```
 
-### 使用 `SwmrReader` 共享读取者创建能力
+### 使用 `SwmrReaderFactory` 共享读取者创建能力
 
-如果需要将创建读取者的能力分发给多个线程（例如，在线程动态变化的线程池中），可以使用 `SwmrReader`。与 `LocalReader` 不同，`SwmrReader` 是 `Sync` 和 `Clone` 的。
+如果需要将创建读取者的能力分发给多个线程（例如，在线程动态变化的线程池中），可以使用 `SwmrReaderFactory`。与 `LocalReader` 不同，`SwmrReaderFactory` 是 `Sync` 和 `Clone` 的。
 
 ```rust
 use swmr_cell::SwmrCell;
@@ -127,8 +127,8 @@ use std::thread;
 
 let mut cell = SwmrCell::new(0);
 
-// 创建一个可以共享的 SwmrReader 工厂
-let reader_factory = cell.reader();
+// 创建一个可以共享的 SwmrReaderFactory 工厂
+let reader_factory = cell.reader_factory();
 
 for i in 0..3 {
     // 为每个线程克隆工厂
@@ -136,31 +136,47 @@ for i in 0..3 {
     
     thread::spawn(move || {
         // 使用工厂在线程上创建 LocalReader
-        let local = factory.local();
+        let local = factory.local_reader();
         
         // ... 使用 local reader ...
     });
 }
 ```
 
-你也可以从现有的 `LocalReader` 获取 `SwmrReader`，以便将创建能力传递给另一个线程：
+你也可以从现有的 `LocalReader` 获取 `SwmrReaderFactory`，以便将创建能力传递给另一个线程：
 
 ```rust
-// 1. Share: 从 LocalReader 创建 SwmrReader
-let local_reader = cell.local();
-let swmr_reader = local_reader.share(); // 返回 SwmrReader
+// 1. Share: 从 LocalReader 创建 SwmrReaderFactory
+let local_reader = cell.local_reader();
+let factory = local_reader.reader_factory(); 
 thread::spawn(move || {
-    let local = swmr_reader.local();
+    let local = factory.local_reader();
     // ...
 });
 
-// 2. Convert: 消耗 LocalReader 以获取 SwmrReader
-let local_reader = cell.local();
-let swmr_reader = local_reader.into_swmr(); // 消耗 local_reader
+// 2. Convert: 消耗 LocalReader 以获取 SwmrReaderFactory
+let local_reader = cell.local_reader();
+let factory = local_reader.into_swmr(); // 消耗 local_reader
 thread::spawn(move || {
-    let local = swmr_reader.local();
+    let local = factory.local_reader();
     // ...
 });
+```
+
+### 写入者工具方法
+
+`SwmrCell` 为写入者提供了几种便捷工具：
+
+```rust
+let mut cell = SwmrCell::new(10);
+
+// 使用闭包更新值
+cell.update(|v| v + 5);
+assert_eq!(*cell.get(), 15);
+
+// 访问上一个（已退休）的值
+// 适用于回滚或比较
+assert_eq!(cell.previous(), Some(&10));
 ```
 
 ## 配置
